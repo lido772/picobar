@@ -18,6 +18,13 @@ pub enum MenuBar {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Appearance {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub notify: bool,
     /// Warning threshold in percent.
@@ -25,6 +32,7 @@ pub struct Settings {
     /// Minutes between limits fetches.
     pub refresh_min: u8,
     pub menubar: MenuBar,
+    pub theme: Appearance,
 }
 
 impl Default for Settings {
@@ -34,6 +42,7 @@ impl Default for Settings {
             warn: 80,
             refresh_min: 3,
             menubar: MenuBar::Percent,
+            theme: Appearance::System,
         }
     }
 }
@@ -45,8 +54,13 @@ impl Settings {
             MenuBar::Reset => "reset",
             MenuBar::Icon => "icon",
         };
+        let theme = match self.theme {
+            Appearance::System => "system",
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+        };
         format!(
-            "notify={}\nwarn={}\nrefresh={}\nmenubar={menubar}\n",
+            "notify={}\nwarn={}\nrefresh={}\nmenubar={menubar}\ntheme={theme}\n",
             if self.notify { "on" } else { "off" },
             self.warn,
             self.refresh_min
@@ -75,6 +89,13 @@ pub fn parse(text: &str) -> Settings {
                     "reset" => MenuBar::Reset,
                     "icon" => MenuBar::Icon,
                     _ => MenuBar::Percent,
+                }
+            }
+            "theme" => {
+                s.theme = match v {
+                    "light" => Appearance::Light,
+                    "dark" => Appearance::Dark,
+                    _ => Appearance::System,
                 }
             }
             _ => {}
@@ -118,6 +139,7 @@ mod tests {
             warn: 90,
             refresh_min: 15,
             menubar: MenuBar::Reset,
+            theme: Appearance::Light,
         };
         assert_eq!(parse(&s.to_text()), s);
         assert_eq!(parse(""), Settings::default());
@@ -125,8 +147,9 @@ mod tests {
 
     #[test]
     fn invalid_values_fall_back_to_default() {
-        let s = parse("notify=maybe\nwarn=85\nrefresh=1\nmenubar=big\nwhat\nfoo=bar\n");
+        let s = parse("notify=maybe\nwarn=85\nrefresh=1\nmenubar=big\ntheme=blue\nwhat\nfoo=bar\n");
         assert_eq!(s, Settings::default());
+        assert_eq!(parse("theme=dark").theme, Appearance::Dark);
         assert_eq!(parse("warn=70\r\n bogus ").warn, 70);
     }
 }

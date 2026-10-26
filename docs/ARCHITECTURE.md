@@ -160,6 +160,40 @@ Tokens for the upcoming popover: graphite `#16181B`, surface `#1C1F23`, text
 `#ECEDEE`, muted `#8E959C`, mint accent `#5EE6A8`, amber warning `#F5B547`,
 coral needs-you `#FF7A6B`. Numbers in a monospace face.
 
+## Light theme (decided 2026-10-27)
+
+No new crate, no new dependency feature. The popover gets a light palette;
+the tray icon and the native menus are unchanged.
+
+- **Palette.** `popover.rs` replaces its colour constants with
+  `pub struct Palette` (one field per current constant, plus the inline hex
+  values used for the update banner, the inactive bars, the mint chip/halo and
+  the bright sub text) and two `pub const`s, `DARK` (today's values) and `LIGHT`.
+  `View` carries `palette: &'static Palette` and the drawing code reads `ui.c.*`.
+- **Light values** (text must pass WCAG AA 4.5:1 on its own background):
+  bg `#F6F7F8`, card `#FFFFFF`, border `#E1E4E8`, track `#E6E8EB`, text
+  `#16181B`, sub `#3F454B`, muted `#5F666D`, ink on accent fills `#FFFFFF`.
+  Accents darken because they are also used as text: coral `#C83E31` (5.0:1 on
+  white), mint `#0E7A52` (5.3:1), amber `#8A5200` (6.4:1, already used by the
+  light menu bar preview), blue `#2F5BD3` (5.8:1). Coral card: bg `#FDECEA`,
+  border `#F3C6C0`, text `#9C3A30`, strong `#7A2A22`. Fills and the rest
+  (logo, grey, bar_off, halo, chip, update banner, sub_bright, heat ramp)
+  live in `LIGHT` in `src/ui/popover.rs`; `grey` is below 4.5:1, never use it for text.
+- **Detection.** `Appearance::System` follows `tao`'s `Window::theme()` on macOS
+  and Windows (a cached field, no system call per draw); `WindowEvent::ThemeChanged`
+  triggers a redraw. On Linux `System` means dark: tao asks the XDG portal over
+  D-Bus on every call, which can block for up to 5 s, and maps "no preference" to light.
+  PicoBar never calls `set_theme` (on macOS it would change the appearance of the whole app).
+- **Setting.** `theme=system|light|dark` (default `system`), an **Appearance**
+  radio group in the Settings submenu, parsed like `menubar`.
+- **Screenshots.** `picobar --render <dir> --demo --light` writes the
+  same popover files with a `-light` suffix (the menu bar preview already shows both).
+- **Budget.** About 150 bytes of constant data plus a few KB of code for reading
+  colours from a struct. RAM and idle CPU are unchanged: there is one extra redraw
+  per theme change.
+- **Known limit.** On Windows, the tray icon colours stay as they are on a light
+  taskbar (a separate item).
+
 ## Updates
 
 `update.rs` asks `api.github.com/repos/lido772/picobar/releases/latest` once a

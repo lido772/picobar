@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Light theme for the popover. Settings > Appearance: System (follows the OS
+  on macOS and Windows, dark on Linux), Light or Dark.
+- `picobar --render <dir> --demo --light` draws the light popover.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added
