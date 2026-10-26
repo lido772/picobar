@@ -36,11 +36,11 @@ jobs:
           cp picobar "$APP/Contents/MacOS/picobar"
           sed "s/__VERSION__/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
           codesign --force --sign - "$APP"
-          ditto -c -k --keepParent "$APP" "PicoBar-$VERSION-macos-universal.zip"
+          scripts/make-dmg.sh "$APP" "PicoBar-$VERSION-macos-universal.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: PicoBar-*-macos-universal.zip
+          path: PicoBar-*-macos-universal.dmg
 
   windows:
     runs-on: windows-latest

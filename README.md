@@ -16,9 +16,9 @@ refreshes (about 11 MB of memory, 0% CPU when idle).
 
 Download the latest build from [Releases](https://github.com/lido772/picobar/releases):
 
-- **macOS 11+** (Intel and Apple Silicon): unzip and move `PicoBar.app` to
-  Applications. The app is not notarized yet, so the first time, right-click
-  it and choose **Open**.
+- **macOS 11+** (Intel and Apple Silicon): open the `.dmg` and drag
+  PicoBar to Applications. The app is not notarized yet, so the first time,
+  right-click it in Applications and choose **Open**.
 - **Windows 10+**: unzip and run `PicoBar.exe`.
 
 To start PicoBar at login: macOS, System Settings › General › Login Items;
