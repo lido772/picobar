@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::sources::claude_hook;
 use crate::util;
 
 /// History kept for Trends.
@@ -107,6 +108,8 @@ struct FileState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
+    /// Blocked on a permission prompt (see `claude_hook`).
+    NeedsInput,
     /// Claude finished its turn and is waiting for you.
     YourTurn,
     Running,
@@ -115,6 +118,8 @@ pub enum SessionState {
 
 #[derive(Debug, Clone)]
 pub struct Session {
+    /// Log file stem, which is Claude Code's session id.
+    pub id: String,
     pub name: String,
     pub model: String,
     pub state: SessionState,
@@ -137,6 +142,13 @@ pub struct ClaudeLogs {
     file_ids: HashMap<PathBuf, u32>,
     models: Vec<String>,
     entries: Vec<Entry>,
+    /// Permission-prompt markers: session id -> mtime.
+    markers: HashMap<String, i64>,
+}
+
+/// A marker counts only while it is at least as new as the session log.
+fn needs_input(marker: Option<i64>, log_mtime: i64) -> bool {
+    marker.is_some_and(|m| m >= log_mtime)
 }
 
 impl ClaudeLogs {
@@ -146,6 +158,7 @@ impl ClaudeLogs {
             return;
         };
         let now = util::now();
+        self.markers = claude_hook::markers(now);
         let mut found = Vec::new();
         walk(&root, 0, &mut found);
         let mut live = Vec::with_capacity(found.len());
@@ -240,7 +253,14 @@ impl ClaudeLogs {
                 let your_turn = f.last_stop.as_deref() == Some("end_turn")
                     && !f.user_after
                     && subagents_running == 0;
-                let state = if your_turn {
+                let id = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let state = if needs_input(self.markers.get(&id).copied(), f.mtime) {
+                    SessionState::NeedsInput
+                } else if your_turn {
                     SessionState::YourTurn
                 } else if now - f.mtime <= RUNNING_SECS || subagents_running > 0 {
                     SessionState::Running
@@ -248,6 +268,7 @@ impl ClaudeLogs {
                     SessionState::Idle
                 };
                 Session {
+                    id,
                     name: f
                         .cwd
                         .as_deref()
@@ -466,6 +487,14 @@ mod tests {
         for l in lines {
             logs.ingest(&p, id, l.as_bytes(), now);
         }
+    }
+
+    #[test]
+    fn marker_must_not_be_older_than_log() {
+        assert!(needs_input(Some(100), 100));
+        assert!(needs_input(Some(101), 100));
+        assert!(!needs_input(Some(99), 100));
+        assert!(!needs_input(None, 100));
     }
 
     #[test]

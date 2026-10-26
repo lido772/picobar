@@ -59,11 +59,12 @@ pub fn data(range: usize) -> (Snapshot, Vec<AgentRow>, Trends) {
             ],
             sessions: Vec::new(),
         }),
-        waiting: 2,
+        waiting: 3,
     };
 
     let row =
         |tool, name: &str, model: &str, state, since, tokens, subagents, preview: &str| AgentRow {
+            id: String::new(),
             tool,
             name: name.into(),
             model: model.into(),
@@ -74,6 +75,16 @@ pub fn data(range: usize) -> (Snapshot, Vec<AgentRow>, Trends) {
             preview: preview.into(),
         };
     let agents = vec![
+        row(
+            "Claude Code",
+            "infra-scripts",
+            "Sonnet 4.5",
+            AgentState::NeedsInput,
+            45,
+            96_000,
+            0,
+            "",
+        ),
         row(
             "Claude Code",
             "api-refactor",

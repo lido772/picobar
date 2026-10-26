@@ -1,0 +1,11 @@
+{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "/usr/local/bin/audit" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "say done" } ] }
+    ]
+  }
+}
