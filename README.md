@@ -21,9 +21,14 @@ runtime: a ~2 MB app that uses about 16 MB of memory and 0% CPU when idle.
     <td><img src="docs/screenshots/agents.png" width="260" alt="Agents tab: Claude Code and OpenCode sessions, with the ones waiting for you highlighted"></td>
     <td><img src="docs/screenshots/trends.png" width="260" alt="Trends tab: daily tokens over 7 days, burn-rate projection, usage heatmap and insights"></td>
   </tr>
+  <tr>
+    <td><img src="docs/screenshots/now-light.png" width="260" alt="Now tab in the light theme"></td>
+    <td><img src="docs/screenshots/agents-light.png" width="260" alt="Agents tab in the light theme"></td>
+    <td><img src="docs/screenshots/trends-light.png" width="260" alt="Trends tab in the light theme"></td>
+  </tr>
 </table>
 
-<sub>Screenshots use demo data (`picobar --render <dir> --demo`).</sub>
+<sub>Screenshots use demo data (`picobar --render <dir> --demo`, add `--light` for the light theme).</sub>
 
 ## Features
 
@@ -114,7 +119,7 @@ cargo build --release
 ./target/release/picobar --window        # open the popover as a window
 ./target/release/picobar --once          # print the current numbers and exit
 ./target/release/picobar --update        # update to the latest release
-./target/release/picobar --render out    # draw the popover tabs to BMP files
+./target/release/picobar --render out    # draw the popover tabs to BMP files (--light for the light theme)
 ```
 
 Linux needs `libgtk-3-dev` and `libayatana-appindicator3-dev` to build.
@@ -152,7 +157,6 @@ Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 
 ## Roadmap
 
-- Light theme for the popover
 - Signed and notarized macOS builds, signed Windows builds
 
 ## License

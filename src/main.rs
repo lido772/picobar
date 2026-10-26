@@ -18,13 +18,14 @@ use std::time::{Duration, Instant};
 
 use tao::event::{ElementState, Event, MouseButton, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::window::Theme;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu,
 };
 use tray_icon::{MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use model::{AgentRow, SESSION_SECS, Snapshot, Trends};
-use settings::{MenuBar, Settings};
+use settings::{Appearance, MenuBar, Settings};
 use sources::claude_hook;
 use sources::claude_limits::{self, Limits, LimitsError};
 use sources::claude_logs::ClaudeLogs;
@@ -96,6 +97,7 @@ struct Items {
     warn: Choice<u8>,
     refresh_every: Choice<u8>,
     menubar: Choice<MenuBar>,
+    theme: Choice<Appearance>,
     login: CheckMenuItem,
     usage: MenuItem,
     update: MenuItem,
@@ -130,10 +132,20 @@ impl Items {
             ],
             s.menubar,
         );
+        let theme = Choice::new(
+            "Appearance",
+            vec![
+                ("System".into(), Appearance::System),
+                ("Light".into(), Appearance::Light),
+                ("Dark".into(), Appearance::Dark),
+            ],
+            s.theme,
+        );
         let login = CheckMenuItem::new("Launch at login", true, autostart::enabled(), None);
         let settings = Submenu::new("Settings", true);
         settings.append(&warn.menu).expect("menu");
         settings.append(&refresh_every.menu).expect("menu");
+        settings.append(&theme.menu).expect("menu");
         #[cfg(not(windows))] // Windows trays have no title
         settings.append(&menubar.menu).expect("menu");
         settings
@@ -158,6 +170,7 @@ impl Items {
             warn,
             refresh_every,
             menubar,
+            theme,
             login,
             usage: MenuItem::new("Open Claude usage page", true, None),
             update: MenuItem::new("Check for updates", true, None),
@@ -392,6 +405,16 @@ impl App {
         }
 
         if let Some(pop) = pop.filter(|p| p.visible) {
+            // Linux: tao's theme() asks D-Bus and can block, so System means dark there.
+            let palette = match self.settings.theme {
+                Appearance::Light => &ui::popover::LIGHT,
+                Appearance::System
+                    if !cfg!(target_os = "linux") && pop.window.theme() == Theme::Light =>
+                {
+                    &ui::popover::LIGHT
+                }
+                _ => &ui::popover::DARK,
+            };
             let trends = if pop.popover.tab == Tab::Trends {
                 model::trends(&self.logs, self.opencode.as_ref(), now, pop.popover.range)
             } else {
@@ -406,6 +429,7 @@ impl App {
                 updated_ago: (self.limits_at > 0).then(|| now - self.limits_at),
                 history_loading: !self.logs_ready,
                 update: &self.update,
+                palette,
             };
             pop.draw(&view);
         }
@@ -427,6 +451,8 @@ impl App {
             s.refresh_min = m;
         } else if let Some(m) = items.menubar.pick(id) {
             s.menubar = m;
+        } else if let Some(t) = items.theme.pick(id) {
+            s.theme = t;
         } else {
             return false;
         }
@@ -483,7 +509,12 @@ fn print_once() {
 
 /// `picobar --render <dir> [--demo]`: draw each popover tab and the menu bar
 /// item to BMP files (for screenshots). `--demo` uses fictional data.
-fn render_to_files(dir: &str, demo: bool) {
+fn render_to_files(dir: &str, demo: bool, light: bool) {
+    let (palette, suffix) = if light {
+        (&ui::popover::LIGHT, "-light")
+    } else {
+        (&ui::popover::DARK, "")
+    };
     let fonts = ui::text::Fonts::load();
     let real = || {
         let mut app = App {
@@ -518,6 +549,7 @@ fn render_to_files(dir: &str, demo: bool) {
             updated_ago: Some(12),
             history_loading: false,
             update: &UpdateState::Unknown,
+            palette,
         };
         let mut pop = ui::popover::Popover::default();
         pop.tab = tab;
@@ -525,8 +557,9 @@ fn render_to_files(dir: &str, demo: bool) {
         let h = pop.render(&mut cv, &fonts, &view);
         cv.h = (h * 2.0) as usize;
         cv.px.truncate(cv.w * cv.h);
-        let _ = std::fs::write(format!("{dir}/{name}.bmp"), cv.to_bmp());
+        let _ = std::fs::write(format!("{dir}/{name}{suffix}.bmp"), cv.to_bmp());
     }
+    // The menu bar preview already shows both themes.
     let _ = std::fs::write(
         format!("{dir}/menubar.bmp"),
         ui::menubar_preview(&fonts).to_bmp(),
@@ -566,7 +599,8 @@ fn main() {
     }
     if let Some(i) = args.iter().position(|a| a == "--render") {
         let demo = args.iter().any(|a| a == "--demo");
-        render_to_files(args.get(i + 1).map_or(".", String::as_str), demo);
+        let light = args.iter().any(|a| a == "--light");
+        render_to_files(args.get(i + 1).map_or(".", String::as_str), demo, light);
         return;
     }
     #[allow(unused_mut)]
@@ -721,7 +755,7 @@ fn main() {
                     }
                     app.render(tray.as_ref(), &items, Some(p));
                 }
-                WindowEvent::ScaleFactorChanged { .. } => {
+                WindowEvent::ScaleFactorChanged { .. } | WindowEvent::ThemeChanged(_) => {
                     app.render(tray.as_ref(), &items, Some(p))
                 }
                 _ => {}
