@@ -42,6 +42,7 @@ src/
     claude_limits.rs session / weekly limits (network, every 3 min)
     claude_logs.rs   tokens + active sessions from ~/.claude/projects
     opencode.rs      tokens, cost, active sessions from opencode.db
+    claude_hook.rs   `--hook` entry, permission markers, hook install/uninstall
 ```
 
 ## Dependencies
@@ -74,6 +75,40 @@ Candidates for later, measured before adoption: a popover renderer
   `data.tokens.{input,output,reasoning,cache.read,cache.write}`, `data.cost`,
   `time_created` in ms) and `session_v2` (`time_updated`, `time_idle`).
 
+## Permission prompts (decided 2026-10-26)
+
+Logs cannot show that Claude Code is waiting on a permission dialog, so an
+opt-in Claude Code hook tells us. No new crate, no shell script.
+
+- **One hook, one event.** `Notification` with matcher `permission_prompt`.
+  It is read-only: unlike `PermissionRequest`, nothing it prints can approve
+  or deny a tool call. Command string `"<absolute path of the running binary>" --hook`: the path
+  is quoted so spaces are safe; same on macOS, Linux and Windows.
+- **`picobar --hook`** runs before the event loop: reads stdin JSON with
+  `serde_json`, takes `session_id`, accepts only `[A-Za-z0-9_-]{1,64}`
+  (it becomes a filename), touches `config_dir()/waiting/<session_id>`,
+  exits 0. Silent and quick, whatever happens. Portable mode works because
+  `config_dir()` resolves from the same executable.
+- **No clear hooks.** `<session_id>` is the stem of
+  `~/.claude/projects/<project>/<session_id>.jsonl`. A marker counts only
+  while it is newer than its log: approving, denying or interrupting writes
+  a line to the log, which clears the state. Markers older than 1 day are
+  deleted on refresh.
+- **Known limit.** After approving a long-running tool, the state stays
+  "Needs permission" until the tool finishes and its result is written to the
+  log (approval itself writes nothing; unverified).
+- **State.** `SessionState::NeedsInput` / `AgentState::NeedsInput`, sorted
+  first and counted by `model::waiting`, so the existing coral dot lights up.
+  One notification per entry into the state, behind the existing toggle.
+- **Install** is a menu checkbox. It merges into `~/.claude/settings.json`
+  with `serde_json::Value`, never touching other hooks, writes a one-time
+  `settings.json.picobar-bak` and replaces the file atomically (temp + rename).
+  Unparseable settings are left untouched and the reason is shown. Uninstall
+  removes only entries whose command ends in `--hook` and mentions
+  `picobar`. Keys get reordered, because `serde_json` sorts them unless
+  `preserve_order` is enabled, and that feature is adopted only if
+  size-guardian measures it free (that is, `indexmap` is already in the tree).
+
 ## Design reference
 
 Tokens for the upcoming popover: graphite `#16181B`, surface `#1C1F23`, text
@@ -83,7 +118,8 @@ coral needs-you `#FF7A6B`. Numbers in a monospace face.
 ## Updates
 
 `update.rs` asks `api.github.com/repos/lido772/picobar/releases/latest` once a
-day through `curl`. Asset names are a contract with `release.yml`. The
+day through `curl`. Asset names are a contract with `release.yml` (Linux:
+`linux-x86_64` and, from 2026-10-26, `linux-aarch64`, picked by `target_arch`). The
 download is checked against `SHA256SUMS.txt` (SHA-256 implemented in the
 crate, no dependency) before anything is replaced:
 

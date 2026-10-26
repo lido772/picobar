@@ -73,10 +73,12 @@ next to PicoBar, or run once in Terminal:
   USB stick works) and run `PicoBar.exe`. Settings stay in a `PicoBar Data`
   folder next to it; nothing is written to your profile.
 
-**Linux** (x86_64, GTK 3)
-- Debian / Ubuntu — `picobar_<version>_amd64.deb`:
-  `sudo apt install ./picobar_<version>_amd64.deb`
-- Any distribution — `PicoBar-<version>-linux-x86_64.tar.gz`: unpack and run
+**Linux** (x86_64 and arm64, GTK 3)
+- Debian / Ubuntu — `picobar_<version>_amd64.deb` (Intel/AMD) or
+  `picobar_<version>_arm64.deb` (ARM64):
+  `sudo apt install ./picobar_<version>_<arch>.deb`
+- Any distribution — `PicoBar-<version>-linux-x86_64.tar.gz` (Intel/AMD) or
+  `PicoBar-<version>-linux-aarch64.tar.gz` (ARM64): unpack and run
   `./picobar`. Needs GTK 3 and `libayatana-appindicator3` (or
   `libappindicator3`).
 - The icon lives in the system tray, which needs AppIndicator support (KDE,
@@ -146,11 +148,9 @@ Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 
 ## Roadmap
 
-- Detect when an agent is blocked on a permission prompt (Claude Code hook)
 - Settings: threshold, refresh interval, menu bar display mode, launch at login
 - Light theme for the popover
 - Signed and notarized macOS builds, signed Windows builds
-- Linux on ARM64
 
 ## License
 

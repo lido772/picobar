@@ -20,6 +20,7 @@ use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuIt
 use tray_icon::{MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use model::{AgentRow, SESSION_SECS, Snapshot, Trends};
+use sources::claude_hook;
 use sources::claude_limits::{self, Limits, LimitsError};
 use sources::claude_logs::ClaudeLogs;
 use sources::opencode::OpenCodeStats;
@@ -55,6 +56,7 @@ struct Items {
     active: MenuItem,
     refresh: MenuItem,
     notify: CheckMenuItem,
+    prompts: CheckMenuItem,
     usage: MenuItem,
     update: MenuItem,
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -74,6 +76,12 @@ impl Items {
             active: info("Active  –"),
             refresh: MenuItem::new("Refresh now", true, None),
             notify: CheckMenuItem::new("Notify on resets and at 80%", true, notify, None),
+            prompts: CheckMenuItem::new(
+                "Show Claude permission prompts",
+                true,
+                claude_hook::installed(),
+                None,
+            ),
             usage: MenuItem::new("Open Claude usage page", true, None),
             update: MenuItem::new("Check for updates", true, None),
             #[cfg(not(any(target_os = "macos", windows)))]
@@ -98,6 +106,7 @@ impl Items {
             &PredefinedMenuItem::separator(),
             &self.refresh,
             &self.notify,
+            &self.prompts,
             &self.usage,
             &self.update,
             &PredefinedMenuItem::separator(),
@@ -287,7 +296,9 @@ impl App {
             let _ = t.set_tooltip(Some(snap.tooltip()));
         }
 
-        for (title, body) in self.alerts.check(snap.limits.as_ref(), snap.now) {
+        let mut msgs = self.alerts.check(snap.limits.as_ref(), snap.now);
+        msgs.extend(self.alerts.check_agents(&agents));
+        for (title, body) in msgs {
             if self.notify {
                 notify::send(&title, &body);
             }
@@ -428,6 +439,10 @@ fn render_to_files(dir: &str, demo: bool) {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--hook") {
+        sources::claude_hook::run_hook();
+        return;
+    }
     if std::env::args().any(|a| a == "--once") {
         print_once();
         return;
@@ -627,6 +642,17 @@ fn main() {
                 app.render(tray.as_ref(), &items, pop.as_mut());
             } else if e.id == items.notify.id() {
                 app.set_notify(items.notify.is_checked(), &items);
+            } else if e.id == items.prompts.id() {
+                let on = items.prompts.is_checked();
+                let r = if on {
+                    claude_hook::install()
+                } else {
+                    claude_hook::uninstall()
+                };
+                if let Err(e) = r {
+                    notify::send("Could not change Claude settings", &e);
+                }
+                items.prompts.set_checked(claude_hook::installed());
             } else if e.id == items.usage.id() {
                 util::open_url(USAGE_PAGE);
             } else if e.id == items.update.id() {

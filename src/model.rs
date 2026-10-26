@@ -188,6 +188,7 @@ fn explain(e: LimitsError) -> &'static str {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgentState {
+    NeedsInput,
     YourTurn,
     Stopped,
     Running,
@@ -196,6 +197,8 @@ pub enum AgentState {
 
 #[derive(Debug, Clone)]
 pub struct AgentRow {
+    /// Claude session id; empty for OpenCode.
+    pub id: String,
     pub tool: &'static str,
     pub name: String,
     pub model: String,
@@ -211,10 +214,12 @@ pub fn agents(logs: &ClaudeLogs, oc: Option<&OpenCodeStats>, now: i64) -> Vec<Ag
         .sessions(now)
         .into_iter()
         .map(|s| AgentRow {
+            id: s.id,
             tool: "Claude Code",
             name: s.name,
             model: s.model,
             state: match s.state {
+                SessionState::NeedsInput => AgentState::NeedsInput,
                 SessionState::YourTurn => AgentState::YourTurn,
                 SessionState::Running => AgentState::Running,
                 SessionState::Idle => AgentState::Idle,
@@ -227,6 +232,7 @@ pub fn agents(logs: &ClaudeLogs, oc: Option<&OpenCodeStats>, now: i64) -> Vec<Ag
         .collect();
     for s in oc.map(|o| o.sessions.as_slice()).unwrap_or_default() {
         rows.push(AgentRow {
+            id: String::new(),
             tool: "OpenCode",
             name: s.name.clone(),
             model: s.model.clone(),
@@ -248,7 +254,12 @@ pub fn agents(logs: &ClaudeLogs, oc: Option<&OpenCodeStats>, now: i64) -> Vec<Ag
 
 pub fn waiting(rows: &[AgentRow]) -> usize {
     rows.iter()
-        .filter(|r| matches!(r.state, AgentState::YourTurn | AgentState::Stopped))
+        .filter(|r| {
+            matches!(
+                r.state,
+                AgentState::NeedsInput | AgentState::YourTurn | AgentState::Stopped
+            )
+        })
         .count()
 }
 

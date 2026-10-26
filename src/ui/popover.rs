@@ -325,7 +325,12 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
     let waiting: Vec<&AgentRow> = v
         .agents
         .iter()
-        .filter(|a| matches!(a.state, AgentState::YourTurn | AgentState::Stopped))
+        .filter(|a| {
+            matches!(
+                a.state,
+                AgentState::NeedsInput | AgentState::YourTurn | AgentState::Stopped
+            )
+        })
         .collect();
     if let Some(first) = waiting.first() {
         ui.cv.panel(P, y, IW, 50.0, 10.0, CORAL_BG, CORAL_BORDER);
@@ -696,7 +701,12 @@ fn capitalize(s: &str) -> String {
 
 fn agents_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
     let count = |f: &dyn Fn(&AgentRow) -> bool| v.agents.iter().filter(|a| f(a)).count();
-    let yours = count(&|a| matches!(a.state, AgentState::YourTurn | AgentState::Stopped));
+    let yours = count(&|a| {
+        matches!(
+            a.state,
+            AgentState::NeedsInput | AgentState::YourTurn | AgentState::Stopped
+        )
+    });
     let running = count(&|a| a.state == AgentState::Running);
     let idle = count(&|a| a.state == AgentState::Idle);
     let subagents: usize = v.agents.iter().map(|a| a.subagents).sum();
@@ -741,7 +751,12 @@ fn agents_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
     let waiting: Vec<&AgentRow> = v
         .agents
         .iter()
-        .filter(|a| matches!(a.state, AgentState::YourTurn | AgentState::Stopped))
+        .filter(|a| {
+            matches!(
+                a.state,
+                AgentState::NeedsInput | AgentState::YourTurn | AgentState::Stopped
+            )
+        })
         .take(3)
         .collect();
     if !waiting.is_empty() {
@@ -778,10 +793,10 @@ fn agents_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
                 CORAL_TEXT,
                 &util::countdown(a.since),
             );
-            let status = if a.state == AgentState::Stopped {
-                "Stopped: needs a look"
-            } else {
-                "Finished its turn, waiting for you"
+            let status = match a.state {
+                AgentState::NeedsInput => "Needs permission",
+                AgentState::Stopped => "Stopped: needs a look",
+                _ => "Finished its turn, waiting for you",
             };
             ui.t(Face::Regular, 12.0, x, y + 39.0, CORAL_LIGHT, status);
             if !a.preview.is_empty() {

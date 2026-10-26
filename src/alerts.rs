@@ -1,5 +1,6 @@
 //! Decides when to notify: a limit resets, or usage crosses the threshold.
 
+use crate::model::{AgentRow, AgentState};
 use crate::sources::claude_limits::{Bucket, Limits};
 use crate::util;
 
@@ -9,6 +10,10 @@ pub const WARN_PCT: f32 = 80.0;
 pub struct Alerts {
     session: Watch,
     weekly: Watch,
+    /// Claude sessions currently blocked on a permission prompt.
+    blocked: Vec<String>,
+    /// Skip sessions already blocked at launch.
+    agents_primed: bool,
 }
 
 #[derive(Default)]
@@ -47,6 +52,30 @@ impl Alerts {
             "Claude weekly usage",
             &mut out,
         );
+        out
+    }
+}
+
+impl Alerts {
+    /// One message per session entering the permission-prompt state.
+    pub fn check_agents(&mut self, rows: &[AgentRow]) -> Vec<Message> {
+        let now: Vec<&AgentRow> = rows
+            .iter()
+            .filter(|r| r.state == AgentState::NeedsInput)
+            .collect();
+        let out = now
+            .iter()
+            .filter(|_| self.agents_primed)
+            .filter(|r| !self.blocked.contains(&r.id))
+            .map(|r| {
+                (
+                    format!("{} needs permission", r.name),
+                    "Claude Code is waiting for you to approve a tool call.".to_owned(),
+                )
+            })
+            .collect();
+        self.blocked = now.iter().map(|r| r.id.clone()).collect();
+        self.agents_primed = true;
         out
     }
 }
@@ -102,6 +131,29 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn notifies_once_per_permission_prompt() {
+        let row = |state| AgentRow {
+            id: "s1".into(),
+            tool: "Claude Code",
+            name: "api".into(),
+            model: String::new(),
+            state,
+            since: 0,
+            tokens: 0,
+            subagents: 0,
+            preview: String::new(),
+        };
+        let mut a = Alerts::default();
+        // Already blocked at launch: recorded, not notified.
+        assert!(a.check_agents(&[row(AgentState::NeedsInput)]).is_empty());
+        assert!(a.check_agents(&[row(AgentState::Running)]).is_empty());
+        assert_eq!(a.check_agents(&[row(AgentState::NeedsInput)]).len(), 1);
+        assert!(a.check_agents(&[row(AgentState::NeedsInput)]).is_empty());
+        assert!(a.check_agents(&[row(AgentState::Running)]).is_empty());
+        assert_eq!(a.check_agents(&[row(AgentState::NeedsInput)]).len(), 1);
     }
 
     #[test]
