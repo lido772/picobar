@@ -13,12 +13,20 @@ categories = ["command-line-utilities", "gui"]
 [dependencies]
 tao = "0.37.2"        # native event loop (NSApplication / Win32), no webview
 tray-icon = "0.26.1"  # menu bar item / tray icon + native menus (muda)
+softbuffer = { version = "0.4", default-features = false }  # blit our pixels into the popover window
+ab_glyph = "0.2"      # rasterize text with the system's own fonts
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 
 # OpenCode keeps its data in SQLite. Bundled: linking macOS's system
 # libsqlite3 directly crashed on open, and Windows ships none.
 rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"           # local time offset (already in the tree via tao)
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Time"] }  # local time offset
 
 [profile.release]
 opt-level = "z"     # optimize for size

@@ -1,0 +1,156 @@
+//! The popover window: a native borderless window filled by our own
+//! software painter through `softbuffer` (no GPU stack, no webview).
+
+pub mod paint;
+pub mod popover;
+pub mod text;
+
+use std::num::NonZeroU32;
+use std::rc::Rc;
+use std::time::Instant;
+
+use tao::dpi::{LogicalSize, PhysicalPosition};
+use tao::event_loop::EventLoopWindowTarget;
+use tao::window::{Window, WindowBuilder};
+
+use paint::Canvas;
+use popover::{Action, Popover, View, WIDTH};
+
+pub struct PopoverWindow {
+    pub window: Rc<Window>,
+    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    _context: softbuffer::Context<Rc<Window>>,
+    fonts: text::Fonts,
+    pub popover: Popover,
+    height: f32,
+    pub visible: bool,
+    pub hidden_at: Option<Instant>,
+    cursor: (f64, f64),
+}
+
+impl PopoverWindow {
+    pub fn new<T: 'static>(target: &EventLoopWindowTarget<T>) -> Option<PopoverWindow> {
+        #[allow(unused_mut)]
+        let mut builder = WindowBuilder::new()
+            .with_title("PicoBar")
+            .with_inner_size(LogicalSize::new(WIDTH as f64, 600.0))
+            .with_resizable(false)
+            .with_visible(false)
+            .with_always_on_top(true);
+        #[cfg(target_os = "macos")]
+        {
+            use tao::platform::macos::WindowBuilderExtMacOS;
+            builder = builder
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_titlebar_buttons_hidden(true)
+                .with_fullsize_content_view(true)
+                .with_movable_by_window_background(false);
+        }
+        #[cfg(windows)]
+        {
+            use tao::platform::windows::WindowBuilderExtWindows;
+            builder = builder
+                .with_decorations(false)
+                .with_skip_taskbar(true)
+                .with_undecorated_shadow(true);
+        }
+        let window = Rc::new(builder.build(target).ok()?);
+        let context = softbuffer::Context::new(window.clone()).ok()?;
+        let surface = softbuffer::Surface::new(&context, window.clone()).ok()?;
+        Some(PopoverWindow {
+            window,
+            surface,
+            _context: context,
+            fonts: text::Fonts::load(),
+            popover: Popover::default(),
+            height: 600.0,
+            visible: false,
+            hidden_at: None,
+            cursor: (0.0, 0.0),
+        })
+    }
+
+    pub fn draw(&mut self, view: &View) {
+        let scale = self.window.scale_factor() as f32;
+        let mut cv = self.canvas(scale);
+        let needed = self.popover.render(&mut cv, &self.fonts, view).ceil();
+        if (needed - self.height).abs() >= 1.0 {
+            self.height = needed;
+            self.window
+                .set_inner_size(LogicalSize::new(WIDTH as f64, needed as f64));
+            cv = self.canvas(scale);
+            self.popover.render(&mut cv, &self.fonts, view);
+        }
+        let (Some(w), Some(h)) = (NonZeroU32::new(cv.w as u32), NonZeroU32::new(cv.h as u32))
+        else {
+            return;
+        };
+        if self.surface.resize(w, h).is_err() {
+            return;
+        }
+        if let Ok(mut buf) = self.surface.buffer_mut() {
+            let n = buf.len().min(cv.px.len());
+            buf[..n].copy_from_slice(&cv.px[..n]);
+            let _ = buf.present();
+        }
+    }
+
+    fn canvas(&self, scale: f32) -> Canvas {
+        Canvas::new(
+            (WIDTH * scale).round() as usize,
+            (self.height * scale).round() as usize,
+            scale,
+        )
+    }
+
+    /// Show below (macOS menu bar) or above (Windows taskbar) the tray icon.
+    pub fn show_at(&mut self, rect: tray_icon::Rect) {
+        let (ix, iy) = (rect.position.x, rect.position.y);
+        let (iw, ih) = (rect.size.width as f64, rect.size.height as f64);
+        let monitor = self.window.available_monitors().find(|m| {
+            let (p, s) = (m.position(), m.size());
+            ix >= p.x as f64
+                && ix < p.x as f64 + s.width as f64
+                && iy >= p.y as f64
+                && iy < p.y as f64 + s.height as f64
+        });
+        let scale = monitor
+            .as_ref()
+            .map_or(self.window.scale_factor(), |m| m.scale_factor());
+        let (w, h) = (WIDTH as f64 * scale, self.height as f64 * scale);
+        let mut x = ix + iw / 2.0 - w / 2.0;
+        let mut below = true;
+        if let Some(m) = &monitor {
+            let (p, s) = (m.position(), m.size());
+            let (left, right) = (p.x as f64 + 8.0, p.x as f64 + s.width as f64 - w - 8.0);
+            x = x.max(left).min(right.max(left));
+            below = iy < p.y as f64 + s.height as f64 / 2.0;
+        }
+        let gap = 6.0 * scale;
+        let y = if below { iy + ih + gap } else { iy - h - gap };
+        self.window.set_outer_position(PhysicalPosition::new(x, y));
+        self.window.set_visible(true);
+        self.window.set_focus();
+        self.visible = true;
+    }
+
+    pub fn hide(&mut self) {
+        if self.visible {
+            self.window.set_visible(false);
+            self.visible = false;
+            self.hidden_at = Some(Instant::now());
+        }
+    }
+
+    pub fn cursor_moved(&mut self, x: f64, y: f64) {
+        self.cursor = (x, y);
+    }
+
+    /// The action under the cursor, for a left click.
+    pub fn click(&self) -> Option<Action> {
+        let s = self.window.scale_factor();
+        self.popover
+            .hit_test((self.cursor.0 / s) as f32, (self.cursor.1 / s) as f32)
+    }
+}

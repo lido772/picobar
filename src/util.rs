@@ -37,6 +37,71 @@ pub fn hidden(program: &str) -> Command {
     cmd
 }
 
+/// Local UTC offset in seconds at unix time `ts` (DST-aware on macOS/Linux).
+#[cfg(unix)]
+pub fn utc_offset(ts: i64) -> i64 {
+    let t = ts as libc::time_t;
+    // SAFETY: localtime_r only writes into the zeroed `tm` we own.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+        0
+    } else {
+        tm.tm_gmtoff as i64
+    }
+}
+
+/// Local UTC offset in seconds (current rules).
+#[cfg(windows)]
+pub fn utc_offset(_ts: i64) -> i64 {
+    use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
+    // SAFETY: the API fills the zeroed struct we own.
+    let mut tz: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
+    let id = unsafe { GetTimeZoneInformation(&mut tz) };
+    let bias = tz.Bias
+        + if id == 2 {
+            tz.DaylightBias
+        } else {
+            tz.StandardBias
+        };
+    -(bias as i64) * 60
+}
+
+/// Local day number (days since 1970-01-01 in local time).
+pub fn local_day(ts: i64) -> i64 {
+    (ts + utc_offset(ts)).div_euclid(86_400)
+}
+
+/// Local "HH:MM".
+pub fn local_hm(ts: i64) -> String {
+    let s = (ts + utc_offset(ts)).rem_euclid(86_400);
+    format!("{:02}:{:02}", s / 3600, s % 3600 / 60)
+}
+
+/// Monday = 0 … Sunday = 6, for a local day number.
+pub fn weekday(day: i64) -> usize {
+    (day + 3).rem_euclid(7) as usize
+}
+
+/// (year, month, day) for a day number (days since 1970-01-01).
+pub fn civil(day: i64) -> (i64, u32, u32) {
+    let z = day + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+pub const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/// "Thu 09:00" for a future time within a week, "Thu 29" style otherwise.
+pub fn local_day_hm(ts: i64) -> String {
+    format!("{} {}", WEEKDAYS[weekday(local_day(ts))], local_hm(ts))
+}
+
 /// Parse RFC 3339 timestamps such as `2026-10-26T09:28:52.511Z` or
 /// `2026-10-26T14:00:00.123456+00:00` into unix seconds.
 pub fn parse_iso(s: &str) -> Option<i64> {

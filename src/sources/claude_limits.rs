@@ -28,6 +28,8 @@ pub struct Limits {
     pub weekly: Option<Bucket>,
     pub weekly_opus: Option<Bucket>,
     pub weekly_sonnet: Option<Bucket>,
+    /// Subscription from the login, e.g. "pro" or "max".
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,12 +44,14 @@ pub enum LimitsError {
 }
 
 pub fn fetch() -> Result<Limits, LimitsError> {
-    let token = token()?;
+    let (token, plan) = token()?;
     let body = get(&token)?;
-    parse(&body).ok_or(LimitsError::Unexpected)
+    let mut limits = parse(&body).ok_or(LimitsError::Unexpected)?;
+    limits.plan = plan;
+    Ok(limits)
 }
 
-fn token() -> Result<String, LimitsError> {
+fn token() -> Result<(String, Option<String>), LimitsError> {
     let raw = credentials().ok_or(LimitsError::NoLogin)?;
     let v: Value = serde_json::from_str(&raw).map_err(|_| LimitsError::NoLogin)?;
     let oauth = &v["claudeAiOauth"];
@@ -58,7 +62,8 @@ fn token() -> Result<String, LimitsError> {
     {
         return Err(LimitsError::Expired);
     }
-    Ok(token.to_owned())
+    let plan = oauth["subscriptionType"].as_str().map(str::to_owned);
+    Ok((token.to_owned(), plan))
 }
 
 #[cfg(target_os = "macos")]
@@ -133,6 +138,7 @@ pub fn parse(body: &str) -> Option<Limits> {
         weekly: bucket("seven_day"),
         weekly_opus: bucket("seven_day_opus"),
         weekly_sonnet: bucket("seven_day_sonnet"),
+        plan: None,
     })
 }
 
