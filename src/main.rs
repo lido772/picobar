@@ -3,6 +3,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod alerts;
+mod demo;
 mod icon;
 mod model;
 mod notify;
@@ -288,29 +289,40 @@ fn print_once() {
     }
 }
 
-/// `picobar --render <dir>`: draw each popover tab to a BMP file (screenshots).
-fn render_to_files(dir: &str) {
-    let mut app = App {
-        logs_ready: true,
-        ..Default::default()
-    };
-    app.read_local();
-    app.on_limits(claude_limits::fetch());
-    let now = util::now();
-    let agents = model::agents(&app.logs, app.opencode.as_ref(), now);
-    let snap = app.snapshot(&agents);
+/// `picobar --render <dir> [--demo]`: draw each popover tab and the menu bar
+/// item to BMP files (for screenshots). `--demo` uses fictional data.
+fn render_to_files(dir: &str, demo: bool) {
     let fonts = ui::text::Fonts::load();
+    let real = || {
+        let mut app = App {
+            logs_ready: true,
+            notify: true,
+            ..Default::default()
+        };
+        app.read_local();
+        app.on_limits(claude_limits::fetch());
+        app
+    };
+    let app = (!demo).then(real);
     for (tab, name) in [
         (Tab::Now, "now"),
         (Tab::Agents, "agents"),
         (Tab::Trends, "trends"),
     ] {
-        let trends = model::trends(&app.logs, app.opencode.as_ref(), now, 7);
+        let (snap, agents, trends) = match &app {
+            Some(app) => {
+                let now = util::now();
+                let agents = model::agents(&app.logs, app.opencode.as_ref(), now);
+                let trends = model::trends(&app.logs, app.opencode.as_ref(), now, 7);
+                (app.snapshot(&agents), agents, trends)
+            }
+            None => demo::data(7),
+        };
         let view = View {
             snap: &snap,
             agents: &agents,
             trends: &trends,
-            notify: app.notify,
+            notify: true,
             updated_ago: Some(12),
             history_loading: false,
         };
@@ -322,6 +334,10 @@ fn render_to_files(dir: &str) {
         cv.px.truncate(cv.w * cv.h);
         let _ = std::fs::write(format!("{dir}/{name}.bmp"), cv.to_bmp());
     }
+    let _ = std::fs::write(
+        format!("{dir}/menubar.bmp"),
+        ui::menubar_preview(&fonts).to_bmp(),
+    );
 }
 
 fn main() {
@@ -331,7 +347,8 @@ fn main() {
     }
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--render") {
-        render_to_files(args.get(i + 1).map_or(".", String::as_str));
+        let demo = args.iter().any(|a| a == "--demo");
+        render_to_files(args.get(i + 1).map_or(".", String::as_str), demo);
         return;
     }
     #[allow(unused_mut)]

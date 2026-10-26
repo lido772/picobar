@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Popover on left click, matching the design: Now, Agents and Trends tabs.
+- Agents: Claude Code and OpenCode sessions active in the last hour; a coral
+  badge in the menu bar and the popover when one is waiting for you.
+- Trends: tokens per day over 7 or 30 days, change vs the previous week,
+  burn-rate projection, usage heatmap and insights (35 days of history).
+- `picobar --render <dir> [--demo]` draws the popover to image files.
+
+### Changed
+
+- Logs are read in bounded chunks and system fonts are memory-mapped,
+  keeping idle memory around 16 MB.
+
 ## [0.1.0] - 2026-10-26
 
 First release. A native menu bar (macOS) / tray (Windows) item, under 2 MB.

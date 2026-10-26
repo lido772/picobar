@@ -154,3 +154,68 @@ impl PopoverWindow {
             .hit_test((self.cursor.0 / s) as f32, (self.cursor.1 / s) as f32)
     }
 }
+
+/// The menu bar item as it looks in a dark and a light menu bar, at 2x.
+pub fn menubar_preview(fonts: &text::Fonts) -> Canvas {
+    use paint::Rgb;
+    use text::Face;
+    let mut cv = Canvas::new(2 * 440, 2 * 92, 2.0);
+    cv.clear(Rgb::hex(0x0F1113));
+    let rows = [
+        (
+            Rgb::hex(0x2B2F36),
+            Rgb::hex(0xF2F3F5),
+            Rgb::hex(0x5A5F66),
+            0.62,
+            false,
+            "62%",
+        ),
+        (
+            Rgb::hex(0xE9ECEF),
+            Rgb::hex(0x8A5200),
+            Rgb::hex(0xC4C8CC),
+            0.84,
+            true,
+            "84%",
+        ),
+    ];
+    for (i, (bar, ink, track, frac, attention, label)) in rows.into_iter().enumerate() {
+        let y = 14.0 + i as f32 * 36.0;
+        cv.rrect(14.0, y, 412.0, 28.0, 7.0, bar);
+        let ring_c = if attention { Rgb::hex(0xF5B547) } else { ink };
+        cv.ring(196.0, y + 14.0, 7.5, 2.4, frac, ring_c, track);
+        if attention {
+            cv.circle(202.5, y + 7.5, 4.5, bar);
+            cv.circle(202.5, y + 7.5, 3.2, Rgb::hex(0xFF7A6B));
+        }
+        fonts.draw(&mut cv, Face::Semibold, 13.0, 209.0, y + 19.0, ink, label);
+        let dim = if i == 0 {
+            Rgb::hex(0xB4BAC0)
+        } else {
+            Rgb::hex(0x5B6168)
+        };
+        fonts.draw(
+            &mut cv,
+            Face::Semibold,
+            13.0,
+            26.0,
+            y + 19.0,
+            if i == 0 {
+                Rgb::hex(0xF2F3F5)
+            } else {
+                Rgb::hex(0x111214)
+            },
+            if i == 0 { "Terminal" } else { "Code" },
+        );
+        fonts.draw_right(
+            &mut cv,
+            Face::Regular,
+            13.0,
+            414.0,
+            y + 19.0,
+            dim,
+            "Mon 26 Oct  12:42",
+        );
+    }
+    cv
+}

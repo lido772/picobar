@@ -121,6 +121,45 @@ impl Canvas {
         }
     }
 
+    /// Filled triangle (logical coordinates), anti-aliased by 4x4 supersampling.
+    pub fn tri(&mut self, a: (f32, f32), b: (f32, f32), c: (f32, f32), color: Rgb) {
+        let s = self.scale;
+        let (a, b, c) = ((a.0 * s, a.1 * s), (b.0 * s, b.1 * s), (c.0 * s, c.1 * s));
+        let edge = |p: (f32, f32), q: (f32, f32), x: f32, y: f32| {
+            (q.0 - p.0) * (y - p.1) - (q.1 - p.1) * (x - p.0)
+        };
+        let area = edge(a, b, c.0, c.1);
+        if area.abs() < 1e-3 {
+            return;
+        }
+        let x0 = a.0.min(b.0).min(c.0).floor().max(0.0) as i32;
+        let x1 = a.0.max(b.0).max(c.0).ceil().min(self.w as f32) as i32;
+        let y0 = a.1.min(b.1).min(c.1).floor().max(0.0) as i32;
+        let y1 = a.1.max(b.1).max(c.1).ceil().min(self.h as f32) as i32;
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let mut hits = 0;
+                for sy in 0..4 {
+                    for sx in 0..4 {
+                        let (x, y) = (
+                            px as f32 + (sx as f32 + 0.5) / 4.0,
+                            py as f32 + (sy as f32 + 0.5) / 4.0,
+                        );
+                        let (w0, w1, w2) = (edge(b, c, x, y), edge(c, a, x, y), edge(a, b, x, y));
+                        if (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
+                            || (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0)
+                        {
+                            hits += 1;
+                        }
+                    }
+                }
+                if hits > 0 {
+                    self.blend(px, py, color, hits as f32 / 16.0);
+                }
+            }
+        }
+    }
+
     /// Encode as an uncompressed 24-bit BMP (for screenshots).
     pub fn to_bmp(&self) -> Vec<u8> {
         let row = (self.w * 3).div_ceil(4) * 4;

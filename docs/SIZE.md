@@ -7,3 +7,4 @@ Memory is the physical footprint (what Activity Monitor shows), measured after 2
 |---|---|---|---|---|---|---|
 | 2026-10-26 | skeleton | x86_64-apple-darwin | 715 KB | 6.3 MB | 0.0 % | tray + native menu, stub data |
 | 2026-10-26 | 0.1.0 | x86_64-apple-darwin | 1786 KB | 11 MB | 0.0 % | real sources; bundled SQLite adds ~930 KB |
+| 2026-10-26 | 0.2.0-dev | x86_64-apple-darwin | 2062 KB | 16 MB | 0.0 % | popover (softbuffer + ab_glyph), 35-day history |

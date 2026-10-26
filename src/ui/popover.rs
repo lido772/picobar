@@ -180,10 +180,24 @@ fn header(ui: &mut Ui, v: &View) -> f32 {
     ui.t(Face::Regular, 11.0, P + 38.0, y + 27.0, MUTED, &sub);
     // refresh button
     let bx = WIDTH - P - 32.0;
-    ui.cv.ring(bx + 16.0, y + 14.0, 6.5, 1.8, 0.78, SUB, BG);
-    ui.cv.rrect(bx + 18.5, y + 6.0, 4.5, 4.5, 1.0, SUB);
+    refresh_icon(ui, bx + 16.0, y + 14.0);
     ui.hit(bx, y - 2.0, 32.0, 32.0, Action::Refresh);
     y + 40.0
+}
+
+/// Circular arrow: an open ring with an arrowhead at the end of the arc.
+fn refresh_icon(ui: &mut Ui, cx: f32, cy: f32) {
+    let (r, width, frac) = (6.5, 1.8, 0.8);
+    ui.cv.ring(cx, cy, r, width, frac, SUB, BG);
+    let theta = frac * std::f32::consts::TAU;
+    let rm = r - width / 2.0;
+    let p = (cx + rm * theta.sin(), cy - rm * theta.cos());
+    let t = (theta.cos(), theta.sin()); // clockwise tangent
+    let n = (theta.sin(), -theta.cos()); // outward normal
+    let tip = (p.0 + t.0 * 3.6, p.1 + t.1 * 3.6);
+    let b1 = (p.0 + n.0 * 3.4 - t.0 * 0.6, p.1 + n.1 * 3.4 - t.1 * 0.6);
+    let b2 = (p.0 - n.0 * 3.4 - t.0 * 0.6, p.1 - n.1 * 3.4 - t.1 * 0.6);
+    ui.cv.tri(tip, b1, b2, SUB);
 }
 
 fn tabs(ui: &mut Ui, y: f32, active: Tab, v: &View) -> f32 {
@@ -316,7 +330,7 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
             ui.tr(
                 Face::MonoBold,
                 28.0,
-                r - pw - 1.0,
+                r - pw + 1.5,
                 cy + 22.0,
                 TEXT,
                 &format!("{p:.0}"),
@@ -542,7 +556,10 @@ fn opencode_card(ui: &mut Ui, y: f32, v: &View) -> f32 {
         })
         .collect();
     let max = vals.iter().copied().max().unwrap_or(0).max(1);
-    for (i, val) in vals.iter().enumerate() {
+    if vals.iter().all(|v| *v == 0) {
+        ui.tr(Face::Regular, 11.0, r, by, MUTED, "no activity this week");
+    }
+    for (i, val) in vals.iter().enumerate().filter(|_| max > 1) {
         let bh = (*val as f32 / max as f32 * 36.0).max(3.0);
         let bx = r - (7 - i) as f32 * 9.0 + 3.0;
         ui.cv.rrect(
