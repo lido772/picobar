@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-10-26
 
 ### Added
 
@@ -10,6 +10,16 @@
 - Trends: tokens per day over 7 or 30 days, change vs the previous week,
   burn-rate projection, usage heatmap and insights (35 days of history).
 - `picobar --render <dir> [--demo]` draws the popover to image files.
+- Linux build (x86_64, GTK 3 + AppIndicator) as a `.deb` and a portable
+  `.tar.gz`; fonts come from fontconfig. Without a tray, or with
+  `--window`, PicoBar opens as a small window.
+- Windows installer (per user, no admin rights, optional start at sign-in)
+  and a portable zip that keeps its settings next to `PicoBar.exe`.
+- Built-in updates: a daily check of GitHub releases, an Update button in the
+  popover and the menu, SHA-256 verification against `SHA256SUMS.txt`, then
+  PicoBar replaces itself and restarts. `picobar --update` does it from a
+  terminal.
+- The popover header shows the running version.
 
 ### Changed
 

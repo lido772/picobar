@@ -1,5 +1,11 @@
 name: Release
 
+# Asset names are part of the built-in updater's contract (src/update.rs):
+#   PicoBar-<v>-macos-universal.dmg
+#   PicoBar-<v>-windows-x64-portable.zip   (PicoBar.exe at the top level)
+#   PicoBar-<v>-linux-x86_64.tar.gz        (picobar at the top level)
+#   SHA256SUMS.txt
+
 on:
   push:
     tags: ["v*"]
@@ -28,7 +34,7 @@ jobs:
           lipo -create -output picobar \
             target/aarch64-apple-darwin/release/picobar \
             target/x86_64-apple-darwin/release/picobar
-      - name: Bundle PicoBar.app
+      - name: Bundle PicoBar.app and the disk image
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           APP=PicoBar.app
@@ -49,19 +55,49 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
-      - name: Package
+      - name: Portable zip and installer
         shell: pwsh
         run: |
           $version = "$env:GITHUB_REF_NAME".TrimStart('v')
-          Copy-Item target/release/picobar.exe PicoBar.exe
-          Compress-Archive -Path PicoBar.exe -DestinationPath "PicoBar-$version-windows-x64.zip"
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item target/release/picobar.exe portable/PicoBar.exe
+          Copy-Item packaging/windows/portable portable/portable
+          Copy-Item LICENSE portable/LICENSE.txt
+          Compress-Archive -Path portable/* -DestinationPath "PicoBar-$version-windows-x64-portable.zip"
+          choco install innosetup -y --no-progress | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc /Q "/DVersion=$version" "/DSource=$PWD\target\release\picobar.exe" "/O$PWD" packaging\windows\picobar.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: PicoBar-*-windows-x64.zip
+          path: |
+            PicoBar-*-windows-x64-portable.zip
+            PicoBar-*-windows-x64-setup.exe
+
+  linux:
+    # Oldest supported runner: binaries also run on newer glibc versions.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libgtk-3-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: tar.gz and .deb
+        run: bash scripts/package-linux.sh "${GITHUB_REF_NAME#v}" target/release/picobar .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            PicoBar-*-linux-x86_64.tar.gz
+            picobar_*_amd64.deb
 
   release:
-    needs: [macos, windows]
+    needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -71,7 +107,7 @@ jobs:
           merge-multiple: true
       - name: Checksums and release notes
         run: |
-          cd dist && sha256sum PicoBar-* > SHA256SUMS.txt && cd ..
+          cd dist && sha256sum PicoBar-* picobar_* > SHA256SUMS.txt && cat SHA256SUMS.txt && cd ..
           VERSION="${GITHUB_REF_NAME#v}"
           awk -v v="$VERSION" '
             $0 ~ "^## \\[?" v "\\]?" {on=1; next}

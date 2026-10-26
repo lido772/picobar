@@ -16,11 +16,22 @@ pub fn home() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
-/// PicoBar's own folder (`~/.picobar`), created on demand.
+/// PicoBar's own folder, created on demand: `~/.picobar`, or a
+/// `PicoBar Data` folder next to the executable in portable mode (when a
+/// file named `portable` sits beside it).
 pub fn config_dir() -> Option<PathBuf> {
-    let dir = home()?.join(".picobar");
+    let dir = match portable_dir() {
+        Some(d) => d.join("PicoBar Data"),
+        None => home()?.join(".picobar"),
+    };
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
+}
+
+/// The executable's folder when running in portable mode.
+pub fn portable_dir() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    dir.join("portable").is_file().then_some(dir)
 }
 
 /// A child process with no console window (Windows) and no inherited stdio.

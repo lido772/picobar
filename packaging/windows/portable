@@ -1,0 +1,3 @@
+This file turns on portable mode: PicoBar keeps its settings in the
+"PicoBar Data" folder next to PicoBar.exe instead of your user profile.
+Delete it to use the profile folder (%USERPROFILE%\.picobar) instead.

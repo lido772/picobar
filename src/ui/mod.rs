@@ -18,7 +18,9 @@ use popover::{Action, Popover, View, WIDTH};
 
 pub struct PopoverWindow {
     pub window: Rc<Window>,
-    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    /// Created on first draw: on Linux the window has no native handle
+    /// until it has been shown.
+    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     _context: softbuffer::Context<Rc<Window>>,
     fonts: text::Fonts,
     pub popover: Popover,
@@ -34,7 +36,9 @@ impl PopoverWindow {
         let mut builder = WindowBuilder::new()
             .with_title("PicoBar")
             .with_inner_size(LogicalSize::new(WIDTH as f64, 600.0))
-            .with_resizable(false)
+            // GTK pins a non-resizable window to its first size; the window
+            // has no frame anyway, so let it follow the content on Linux.
+            .with_resizable(cfg!(not(any(target_os = "macos", windows))))
             .with_visible(false)
             .with_always_on_top(true);
         #[cfg(target_os = "macos")]
@@ -55,12 +59,16 @@ impl PopoverWindow {
                 .with_skip_taskbar(true)
                 .with_undecorated_shadow(true);
         }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            use tao::platform::unix::WindowBuilderExtUnix;
+            builder = builder.with_decorations(false).with_skip_taskbar(true);
+        }
         let window = Rc::new(builder.build(target).ok()?);
         let context = softbuffer::Context::new(window.clone()).ok()?;
-        let surface = softbuffer::Surface::new(&context, window.clone()).ok()?;
         Some(PopoverWindow {
             window,
-            surface,
+            surface: None,
             _context: context,
             fonts: text::Fonts::load(),
             popover: Popover::default(),
@@ -86,10 +94,16 @@ impl PopoverWindow {
         else {
             return;
         };
-        if self.surface.resize(w, h).is_err() {
+        if self.surface.is_none() {
+            self.surface = softbuffer::Surface::new(&self._context, self.window.clone()).ok();
+        }
+        let Some(surface) = self.surface.as_mut() else {
+            return;
+        };
+        if surface.resize(w, h).is_err() {
             return;
         }
-        if let Ok(mut buf) = self.surface.buffer_mut() {
+        if let Ok(mut buf) = surface.buffer_mut() {
             let n = buf.len().min(cv.px.len());
             buf[..n].copy_from_slice(&cv.px[..n]);
             let _ = buf.present();
@@ -130,6 +144,26 @@ impl PopoverWindow {
         let gap = 6.0 * scale;
         let y = if below { iy + ih + gap } else { iy - h - gap };
         self.window.set_outer_position(PhysicalPosition::new(x, y));
+        self.window.set_visible(true);
+        self.window.set_focus();
+        self.visible = true;
+    }
+
+    /// Show in the top-right corner of the primary screen (Linux, where tray
+    /// icons report no click position, and `--window`).
+    pub fn show_in_corner(&mut self) {
+        let monitor = self
+            .window
+            .primary_monitor()
+            .or_else(|| self.window.current_monitor())
+            .or_else(|| self.window.available_monitors().next());
+        if let Some(m) = monitor {
+            let scale = m.scale_factor();
+            let (p, s) = (m.position(), m.size());
+            let x = p.x as f64 + s.width as f64 - (WIDTH as f64 + 12.0) * scale;
+            let y = p.y as f64 + 36.0 * scale;
+            self.window.set_outer_position(PhysicalPosition::new(x, y));
+        }
         self.window.set_visible(true);
         self.window.set_focus();
         self.visible = true;

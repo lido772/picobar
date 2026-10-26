@@ -1,6 +1,6 @@
 # PicoBar
 
-**Ultra-light menu bar (macOS) and tray (Windows) monitor for Claude and OpenCode.**
+**Ultra-light menu bar and tray monitor for Claude and OpenCode, on macOS, Windows and Linux.**
 
 See your Claude limits at a glance, get notified when they reset, and know
 which of your coding agents is waiting for you. Native Rust, no webview, no
@@ -56,27 +56,62 @@ crosses 80%. Can be turned off from the popover or the menu.
 
 ## Install
 
-Download the latest build from [Releases](https://github.com/lido772/picobar/releases):
+Download the latest build from [Releases](https://github.com/lido772/picobar/releases).
 
-- **macOS 11+** (Intel and Apple Silicon): open the `.dmg` and drag PicoBar to
-  Applications. The app is not notarized yet, so macOS says it "could not
-  verify PicoBar is free of malware" the first time. Either:
-  - open **System Settings › Privacy & Security**, scroll down and click
-    **Open Anyway** next to PicoBar, then confirm; or
-  - run once in Terminal: `xattr -dr com.apple.quarantine /Applications/PicoBar.app`
-- **Windows 10+**: unzip and run `PicoBar.exe`.
+**macOS 11+** (Intel and Apple Silicon) — `PicoBar-<version>-macos-universal.dmg`:
+open it and drag PicoBar to Applications. The app is not notarized yet, so
+macOS says it "could not verify PicoBar is free of malware" the first time.
+Either open **System Settings › Privacy & Security** and click **Open Anyway**
+next to PicoBar, or run once in Terminal:
+`xattr -dr com.apple.quarantine /Applications/PicoBar.app`
+
+**Windows 10+**
+- Installer — `PicoBar-<version>-windows-x64-setup.exe`: installs for your
+  user only (no admin rights), adds PicoBar to the Start menu and, if you
+  want, starts it when you sign in.
+- Portable — `PicoBar-<version>-windows-x64-portable.zip`: unzip anywhere (a
+  USB stick works) and run `PicoBar.exe`. Settings stay in a `PicoBar Data`
+  folder next to it; nothing is written to your profile.
+
+**Linux** (x86_64, GTK 3)
+- Debian / Ubuntu — `picobar_<version>_amd64.deb`:
+  `sudo apt install ./picobar_<version>_amd64.deb`
+- Any distribution — `PicoBar-<version>-linux-x86_64.tar.gz`: unpack and run
+  `./picobar`. Needs GTK 3 and `libayatana-appindicator3` (or
+  `libappindicator3`).
+- The icon lives in the system tray, which needs AppIndicator support (KDE,
+  Xfce, Cinnamon, Ubuntu's GNOME; on stock GNOME install the AppIndicator
+  extension). Without a tray, PicoBar opens as a small window; `picobar
+  --window` does the same on purpose. The tray menu has **Open PicoBar**.
 
 To start PicoBar at login: macOS, System Settings › General › Login Items;
-Windows, put a shortcut to `PicoBar.exe` in `shell:startup`.
+Windows, the installer option or a shortcut in `shell:startup`; Linux, your
+desktop's autostart settings.
+
+## Updates
+
+PicoBar checks GitHub for a new release once a day (one small request, no
+data about you is sent). When one is out, the popover shows an **Update**
+button and you get one notification. PicoBar then downloads the build for
+your system, checks its SHA-256 against the release's `SHA256SUMS.txt`,
+replaces itself and restarts. You can also use **Check for updates** in the
+menu, or `picobar --update` in a terminal.
+
+The Linux `.deb` installs system-wide, so PicoBar points you to the release
+page instead; update it with `apt` like any package.
 
 ## Build from source
 
 ```sh
 cargo build --release
 ./target/release/picobar                 # menu bar / tray app
+./target/release/picobar --window        # open the popover as a window
 ./target/release/picobar --once          # print the current numbers and exit
+./target/release/picobar --update        # update to the latest release
 ./target/release/picobar --render out    # draw the popover tabs to BMP files
 ```
+
+Linux needs `libgtk-3-dev` and `libayatana-appindicator3-dev` to build.
 
 ## Where the numbers come from
 
@@ -101,11 +136,11 @@ is never written to disk or logged. Everything else stays local.
   `security`, `osascript`, PowerShell) instead of extra libraries.
 - The app sleeps between refreshes and reads only the bytes appended to logs.
 
-| Metric | Budget | Current (macOS) |
-|---|---|---|
-| Binary | ≤ 3 MB | 2.0 MB |
-| Idle memory | ≤ 20 MB | 16 MB |
-| Idle CPU | ~0 % | 0 % |
+| Metric | Budget | macOS | Windows | Linux |
+|---|---|---|---|---|
+| Binary | ≤ 3 MB | 2.0 MB | 1.8 MB | 2.4 MB |
+| Idle memory | ≤ 20 MB | 16 MB | – | 18.5 MB private (GTK) |
+| Idle CPU | ~0 % | 0 % | – | 0 % |
 
 Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 
@@ -114,7 +149,8 @@ Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 - Detect when an agent is blocked on a permission prompt (Claude Code hook)
 - Settings: threshold, refresh interval, menu bar display mode, launch at login
 - Light theme for the popover
-- Signed and notarized macOS builds
+- Signed and notarized macOS builds, signed Windows builds
+- Linux on ARM64
 
 ## License
 

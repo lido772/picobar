@@ -34,7 +34,10 @@ src/
   alerts.rs          when to notify: resets and the 80% threshold
   notify.rs          native notifications via OS tools
   icon.rs            procedurally drawn ring gauge (template image on macOS)
-  util.rs            time parsing, countdowns, paths, hidden child processes
+  util.rs            time parsing, countdowns, paths, portable mode, child processes
+  update.rs          release check, verified download (SHA-256), self-replace
+  demo.rs            fictional data for screenshots
+  ui/                popover window: painter, text, layout
   sources/
     claude_limits.rs session / weekly limits (network, every 3 min)
     claude_logs.rs   tokens + active sessions from ~/.claude/projects
@@ -49,6 +52,9 @@ src/
 | `tray-icon` | Menu bar item / tray icon + native menus | core |
 | `serde` + `serde_json` | Parse Claude Code log lines and the limits response | small |
 | `rusqlite` (bundled) | Read OpenCode's SQLite database | ~930 KB; macOS's system libsqlite3 crashed when linked directly, Windows has none |
+| `softbuffer` | Put our pixels in the popover window (no GPU stack) | small |
+| `ab_glyph` | Rasterize text with the system's fonts (memory-mapped, not embedded) | small |
+| `libc` / `windows-sys` | Local time offset | already in the tree |
 
 Candidates for later, measured before adoption: a popover renderer
 (`tiny-skia` vs `egui` behind a feature), a smaller SQLite build.
@@ -73,3 +79,24 @@ Candidates for later, measured before adoption: a popover renderer
 Tokens for the upcoming popover: graphite `#16181B`, surface `#1C1F23`, text
 `#ECEDEE`, muted `#8E959C`, mint accent `#5EE6A8`, amber warning `#F5B547`,
 coral needs-you `#FF7A6B`. Numbers in a monospace face.
+
+## Updates
+
+`update.rs` asks `api.github.com/repos/lido772/picobar/releases/latest` once a
+day through `curl`. Asset names are a contract with `release.yml`. The
+download is checked against `SHA256SUMS.txt` (SHA-256 implemented in the
+crate, no dependency) before anything is replaced:
+
+- macOS: the DMG is mounted, `PicoBar.app` copied out, swapped with the
+  running bundle, and the new one started with `open -n`.
+- Windows and Linux: the archive is unpacked with the OS `tar`; the running
+  executable is renamed to `.old` (allowed on both), the new one copied in and
+  started. The `.old` file is removed on the next launch.
+- A location PicoBar cannot write (Linux `.deb` in `/usr/bin`) is detected
+  before downloading, and the user is sent to the release page instead.
+
+## Portable mode
+
+A file named `portable` next to the executable moves PicoBar's settings
+folder from `~/.picobar` to `PicoBar Data` beside the executable. The Windows
+portable zip ships with it.

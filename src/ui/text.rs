@@ -60,6 +60,17 @@ fn map_file(path: &str) -> Option<&'static [u8]> {
     Some(Box::leak(std::fs::read(path).ok()?.into_boxed_slice()))
 }
 
+/// Resolve a font file through fontconfig (Linux).
+#[cfg(not(any(target_os = "macos", windows)))]
+fn fc_match(pattern: &str) -> Option<String> {
+    let out = crate::util::hidden("fc-match")
+        .args(["-f", "%{file}", pattern])
+        .output()
+        .ok()?;
+    let path = String::from_utf8(out.stdout).ok()?;
+    (path.ends_with(".ttf") || path.ends_with(".otf")).then_some(path)
+}
+
 pub struct Fonts {
     faces: [Option<FontRef<'static>>; 4],
 }
@@ -116,24 +127,36 @@ impl Fonts {
                 700.0,
             ),
         ];
+        // Linux: ask fontconfig, fall back to DejaVu.
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let lists: Vec<[String; 2]> = [
+            ("sans:weight=80", "DejaVuSans.ttf"),
+            ("sans:weight=180", "DejaVuSans-Bold.ttf"),
+            ("monospace:weight=80", "DejaVuSansMono.ttf"),
+            ("monospace:weight=200", "DejaVuSansMono-Bold.ttf"),
+        ]
+        .iter()
+        .map(|(q, f)| {
+            [
+                fc_match(q).unwrap_or_default(),
+                format!("/usr/share/fonts/truetype/dejavu/{f}"),
+            ]
+        })
+        .collect();
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let refs: Vec<[&str; 2]> = lists
+            .iter()
+            .map(|l| [l[0].as_str(), l[1].as_str()])
+            .collect();
         #[cfg(not(any(target_os = "macos", windows)))]
         let spec: [(&[&str], f32); 4] = [
-            (&["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"], 400.0),
-            (
-                &["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
-                600.0,
-            ),
-            (
-                &["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"],
-                400.0,
-            ),
-            (
-                &["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
-                700.0,
-            ),
+            (&refs[0][..], 400.0),
+            (&refs[1][..], 600.0),
+            (&refs[2][..], 400.0),
+            (&refs[3][..], 700.0),
         ];
         let faces = spec.map(|(paths, weight)| {
-            paths.iter().find_map(|p| {
+            paths.iter().filter(|p| !p.is_empty()).find_map(|p| {
                 let mut f = FontRef::try_from_slice(map_file(p)?).ok()?;
                 f.set_variation(b"wght", weight);
                 Some(f)

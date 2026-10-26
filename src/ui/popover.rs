@@ -4,6 +4,8 @@ use super::paint::{Canvas, Rgb};
 use super::text::{Face, Fonts};
 use crate::alerts::WARN_PCT;
 use crate::model::{AgentRow, AgentState, Snapshot, Trends, human};
+use crate::sources::claude_limits::LimitsError;
+use crate::update::{self, UpdateState};
 use crate::util;
 
 pub const WIDTH: f32 = 380.0;
@@ -52,6 +54,8 @@ pub enum Action {
     Refresh,
     ToggleNotify,
     Quit,
+    Update,
+    OpenReleasePage,
 }
 
 pub struct View<'a> {
@@ -62,6 +66,7 @@ pub struct View<'a> {
     /// Seconds since the limits were last fetched.
     pub updated_ago: Option<i64>,
     pub history_loading: bool,
+    pub update: &'a UpdateState,
 }
 
 pub struct Popover {
@@ -177,6 +182,7 @@ fn header(ui: &mut Ui, v: &View) -> f32 {
         Some(s) => format!("Updated {} ago", util::countdown(s)),
         None => "Updating…".into(),
     };
+    let sub = format!("{sub} · v{}", update::CURRENT);
     ui.t(Face::Regular, 11.0, P + 38.0, y + 27.0, MUTED, &sub);
     // refresh button
     let bx = WIDTH - P - 32.0;
@@ -258,8 +264,64 @@ fn footer(ui: &mut Ui, y: f32, v: &View) -> f32 {
 
 // ------------------------------------------------------------------ Now
 
+fn update_banner(ui: &mut Ui, y: f32, state: &UpdateState) -> f32 {
+    let (title, sub, button) = match state {
+        UpdateState::Available(r) => (
+            format!("PicoBar {} is available", r.version),
+            format!("You have {}", update::CURRENT),
+            Some(if r.installable() {
+                ("Update", Action::Update)
+            } else {
+                ("Download", Action::OpenReleasePage)
+            }),
+        ),
+        UpdateState::Installing(v) => (
+            format!("Updating to {v}…"),
+            "PicoBar restarts by itself".into(),
+            None,
+        ),
+        UpdateState::Failed(e) => (
+            "Update failed".into(),
+            e.clone(),
+            Some(("Open page", Action::OpenReleasePage)),
+        ),
+        _ => return y,
+    };
+    ui.cv
+        .panel(P, y, IW, 50.0, 10.0, Rgb::hex(0x18233A), Rgb::hex(0x2C3E63));
+    ui.cv.rrect(P + 12.0, y + 11.0, 28.0, 28.0, 8.0, BLUE);
+    let ink = Rgb::hex(0x0E1730);
+    ui.cv.rrect(P + 24.5, y + 17.0, 3.0, 11.0, 1.5, ink);
+    ui.cv.tri(
+        (P + 26.0, y + 33.5),
+        (P + 20.0, y + 26.0),
+        (P + 32.0, y + 26.0),
+        ink,
+    );
+    ui.t(Face::Semibold, 12.0, P + 50.0, y + 22.0, TEXT, &title);
+    let max = IW - 62.0 - if button.is_some() { 80.0 } else { 0.0 };
+    let sub = ui.fit(Face::Regular, 11.0, &sub, max);
+    ui.t(
+        Face::Regular,
+        11.0,
+        P + 50.0,
+        y + 38.0,
+        Rgb::hex(0xA9BCE6),
+        &sub,
+    );
+    if let Some((label, action)) = button {
+        let bw = ui.f.width(Face::Semibold, 12.0, label) + 24.0;
+        let bx = WIDTH - P - 10.0 - bw;
+        ui.cv.rrect(bx, y + 11.0, bw, 28.0, 8.0, BLUE);
+        ui.tc(Face::Semibold, 12.0, bx + bw / 2.0, y + 29.5, ink, label);
+        ui.hit(bx, y + 11.0, bw, 28.0, action);
+    }
+    y + 62.0
+}
+
 fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
     let s = v.snap;
+    y = update_banner(ui, y, v.update);
     let waiting: Vec<&AgentRow> = v
         .agents
         .iter()
@@ -371,10 +433,13 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
         }
         None => {
             let note = match s.limits_error {
-                Some(_) => format!("Limits {}", s.status().to_lowercase()),
-                None => "No active session window".into(),
+                Some(LimitsError::NoLogin) => "Sign in to Claude Code to see your limits",
+                Some(LimitsError::Expired) => "Open Claude Code to refresh your login",
+                Some(LimitsError::Offline) => "Offline · showing local data",
+                Some(LimitsError::Unexpected) => "Limits unavailable right now",
+                None => "No active session window",
             };
-            ui.t(Face::Regular, 11.0, x, cy + 10.0, MUTED, &note);
+            ui.t(Face::Regular, 11.0, x, cy + 10.0, MUTED, note);
         }
     }
     cy += 22.0;
@@ -428,12 +493,24 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
             }
         }
         None => {
-            let label = if s.window_start.is_some() {
-                "–"
-            } else {
-                "tokens in the last 5h"
-            };
-            ui.t(Face::Regular, 11.0, x + a, cy + 10.0, MUTED, label);
+            // No session window from Claude: average over the last 5 hours.
+            let per_hour = s.tokens.total() / 5;
+            ui.t(
+                Face::Mono,
+                11.0,
+                x + a,
+                cy + 10.0,
+                TEXT,
+                &format!("{} tok/h", human(per_hour)),
+            );
+            ui.tr(
+                Face::Regular,
+                11.0,
+                r,
+                cy + 10.0,
+                MUTED,
+                "avg over the last 5h",
+            );
         }
     }
     cy += 22.0;

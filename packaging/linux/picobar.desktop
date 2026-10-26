@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PicoBar
+Comment=Claude and OpenCode usage in your tray
+Exec=picobar
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Utility;Monitor;
+StartupNotify=false

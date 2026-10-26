@@ -9,6 +9,7 @@ mod model;
 mod notify;
 mod sources;
 mod ui;
+mod update;
 mod util;
 
 use std::time::{Duration, Instant};
@@ -24,6 +25,7 @@ use sources::claude_logs::ClaudeLogs;
 use sources::opencode::OpenCodeStats;
 use ui::PopoverWindow;
 use ui::popover::{Action, Tab, View};
+use update::{Release, UpdateState};
 
 /// Local sources are re-read every tick; the limits endpoint less often.
 const TICK: Duration = Duration::from_secs(60);
@@ -32,12 +34,16 @@ const LIMITS_EVERY_SECS: i64 = 180;
 const LIMITS_STALE_SECS: i64 = 900;
 const USAGE_PAGE: &str = "https://claude.ai/settings/usage";
 const NOTIFY_OFF_FILE: &str = "notifications-off";
+const UPDATE_CHECK_EVERY_SECS: i64 = 86_400;
 
 enum UserEvent {
     Menu(MenuEvent),
     Tray(TrayIconEvent),
     Limits(Result<Limits, LimitsError>),
     Logs(Box<ClaudeLogs>),
+    UpdateChecked(Result<Option<Release>, String>, bool),
+    UpdateFailed(String),
+    UpdateInstalled,
 }
 
 struct Items {
@@ -50,6 +56,9 @@ struct Items {
     refresh: MenuItem,
     notify: CheckMenuItem,
     usage: MenuItem,
+    update: MenuItem,
+    #[cfg(not(any(target_os = "macos", windows)))]
+    open: MenuItem,
     quit: MenuItem,
 }
 
@@ -66,12 +75,18 @@ impl Items {
             refresh: MenuItem::new("Refresh now", true, None),
             notify: CheckMenuItem::new("Notify on resets and at 80%", true, notify, None),
             usage: MenuItem::new("Open Claude usage page", true, None),
+            update: MenuItem::new("Check for updates", true, None),
+            #[cfg(not(any(target_os = "macos", windows)))]
+            open: MenuItem::new("Open PicoBar", true, None),
             quit: MenuItem::new("Quit PicoBar", true, None),
         }
     }
 
     fn menu(&self) -> Menu {
         let menu = Menu::new();
+        #[cfg(not(any(target_os = "macos", windows)))]
+        menu.append_items(&[&self.open, &PredefinedMenuItem::separator()])
+            .expect("menu");
         menu.append_items(&[
             &self.session,
             &self.weekly,
@@ -84,6 +99,7 @@ impl Items {
             &self.refresh,
             &self.notify,
             &self.usage,
+            &self.update,
             &PredefinedMenuItem::separator(),
             &self.quit,
         ])
@@ -104,6 +120,9 @@ struct App {
     fetching: bool,
     alerts: alerts::Alerts,
     notify: bool,
+    update: UpdateState,
+    last_update_check: i64,
+    announced_version: Option<String>,
 }
 
 impl App {
@@ -116,6 +135,63 @@ impl App {
         let proxy = proxy.clone();
         std::thread::spawn(move || {
             let _ = proxy.send_event(UserEvent::Limits(claude_limits::fetch()));
+        });
+    }
+
+    fn check_update(&mut self, proxy: &EventLoopProxy<UserEvent>, manual: bool) {
+        if matches!(
+            self.update,
+            UpdateState::Checking | UpdateState::Installing(_)
+        ) {
+            return;
+        }
+        self.last_update_check = util::now();
+        if manual {
+            self.update = UpdateState::Checking;
+        }
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let _ = proxy.send_event(UserEvent::UpdateChecked(update::check(), manual));
+        });
+    }
+
+    fn on_update_checked(&mut self, result: Result<Option<Release>, String>, manual: bool) {
+        self.update = match result {
+            Ok(Some(r)) => {
+                if !manual
+                    && self.notify
+                    && self.announced_version.as_deref() != Some(r.version.as_str())
+                {
+                    notify::send(
+                        &format!("PicoBar {} is available", r.version),
+                        "Open PicoBar to update.",
+                    );
+                }
+                self.announced_version = Some(r.version.clone());
+                UpdateState::Available(r)
+            }
+            Ok(None) => UpdateState::UpToDate,
+            Err(e) if manual => UpdateState::Failed(e),
+            Err(_) => UpdateState::Unknown,
+        };
+    }
+
+    fn install_update(&mut self, proxy: &EventLoopProxy<UserEvent>) {
+        let UpdateState::Available(r) = &self.update else {
+            return;
+        };
+        if !r.installable() {
+            util::open_url(&r.page);
+            return;
+        }
+        let r = r.clone();
+        self.update = UpdateState::Installing(r.version.clone());
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let _ = proxy.send_event(match update::install(&r) {
+                Ok(()) => UserEvent::UpdateInstalled,
+                Err(e) => UserEvent::UpdateFailed(e),
+            });
         });
     }
 
@@ -185,6 +261,15 @@ impl App {
         items.tokens.set_text(snap.tokens_line());
         items.opencode.set_text(snap.opencode_line());
         items.active.set_text(snap.active_line());
+        let (label, enabled) = match &self.update {
+            UpdateState::Available(r) => (format!("Update to PicoBar {}", r.version), true),
+            UpdateState::Checking => ("Checking for updates…".into(), false),
+            UpdateState::Installing(v) => (format!("Updating to {v}…"), false),
+            UpdateState::UpToDate => (format!("PicoBar {} is up to date", update::CURRENT), true),
+            _ => ("Check for updates".into(), true),
+        };
+        items.update.set_text(label);
+        items.update.set_enabled(enabled);
 
         if let Some(t) = tray {
             let pct = snap.session_pct();
@@ -221,6 +306,7 @@ impl App {
                 notify: self.notify,
                 updated_ago: (self.limits_at > 0).then(|| now - self.limits_at),
                 history_loading: !self.logs_ready,
+                update: &self.update,
             };
             pop.draw(&view);
         }
@@ -325,6 +411,7 @@ fn render_to_files(dir: &str, demo: bool) {
             notify: true,
             updated_ago: Some(12),
             history_loading: false,
+            update: &UpdateState::Unknown,
         };
         let mut pop = ui::popover::Popover::default();
         pop.tab = tab;
@@ -346,6 +433,27 @@ fn main() {
         return;
     }
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--update") {
+        // `picobar --update`: check, install and restart from a terminal.
+        match update::check() {
+            Ok(None) => println!("PicoBar {} is up to date.", update::CURRENT),
+            Ok(Some(r)) => {
+                println!("Updating PicoBar {} -> {}…", update::CURRENT, r.version);
+                match update::install(&r) {
+                    Ok(()) => println!("Done. PicoBar {} is starting.", r.version),
+                    Err(e) => {
+                        eprintln!("Update failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Could not check for updates: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if let Some(i) = args.iter().position(|a| a == "--render") {
         let demo = args.iter().any(|a| a == "--demo");
         render_to_files(args.get(i + 1).map_or(".", String::as_str), demo);
@@ -380,6 +488,9 @@ fn main() {
     };
     let mut tray: Option<TrayIcon> = None;
     let mut pop: Option<PopoverWindow> = None;
+    // `--window`, or no tray available (e.g. GNOME without AppIndicator):
+    // keep the popover open as a small window.
+    let mut standalone = std::env::args().any(|a| a == "--window");
 
     event_loop.run(move |event, target, control_flow| match event {
         Event::NewEvents(StartCause::Init) => {
@@ -391,17 +502,29 @@ fn main() {
             let builder = builder.with_icon_templated(icon::gauge(None, false));
             #[cfg(not(target_os = "macos"))]
             let builder = builder.with_icon(icon::gauge(None, false));
-            tray = Some(builder.build().expect("tray icon"));
+            tray = builder.build().ok();
+            standalone |= tray.is_none();
             pop = PopoverWindow::new(target);
+            update::cleanup();
+            app.check_update(&proxy, false);
             App::load_history(&proxy);
             app.fetch_limits(&proxy);
             app.read_local();
             app.render(tray.as_ref(), &items, pop.as_mut());
+            if standalone && let Some(p) = pop.as_mut() {
+                p.visible = true;
+                app.render(tray.as_ref(), &items, Some(&mut *p));
+                p.show_in_corner();
+                app.render(tray.as_ref(), &items, Some(p));
+            }
             *control_flow = ControlFlow::WaitUntil(Instant::now() + TICK);
         }
         Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
             if util::now() - app.last_fetch >= LIMITS_EVERY_SECS {
                 app.fetch_limits(&proxy);
+            }
+            if util::now() - app.last_update_check >= UPDATE_CHECK_EVERY_SECS {
+                app.check_update(&proxy, false);
             }
             app.read_local();
             app.render(tray.as_ref(), &items, pop.as_mut());
@@ -410,6 +533,18 @@ fn main() {
         Event::UserEvent(UserEvent::Limits(result)) => {
             app.on_limits(result);
             app.render(tray.as_ref(), &items, pop.as_mut());
+        }
+        Event::UserEvent(UserEvent::UpdateChecked(result, manual)) => {
+            app.on_update_checked(result, manual);
+            app.render(tray.as_ref(), &items, pop.as_mut());
+        }
+        Event::UserEvent(UserEvent::UpdateFailed(e)) => {
+            app.update = UpdateState::Failed(e);
+            app.render(tray.as_ref(), &items, pop.as_mut());
+        }
+        Event::UserEvent(UserEvent::UpdateInstalled) => {
+            tray.take();
+            *control_flow = ControlFlow::Exit;
         }
         Event::UserEvent(UserEvent::Logs(logs)) => {
             app.logs = *logs;
@@ -441,7 +576,8 @@ fn main() {
         Event::WindowEvent { event, .. } => {
             let Some(p) = pop.as_mut() else { return };
             match event {
-                WindowEvent::Focused(false) => p.hide(),
+                WindowEvent::Focused(false) if !standalone => p.hide(),
+                WindowEvent::CloseRequested if standalone => *control_flow = ControlFlow::Exit,
                 WindowEvent::CloseRequested => p.hide(),
                 WindowEvent::CursorMoved { position, .. } => p.cursor_moved(position.x, position.y),
                 WindowEvent::MouseInput {
@@ -457,6 +593,14 @@ fn main() {
                             app.read_local();
                         }
                         Some(Action::ToggleNotify) => app.set_notify(!app.notify, &items),
+                        Some(Action::Update) => app.install_update(&proxy),
+                        Some(Action::OpenReleasePage) => {
+                            let page = match &app.update {
+                                UpdateState::Available(r) => r.page.clone(),
+                                _ => update::RELEASES_PAGE.to_owned(),
+                            };
+                            util::open_url(&page);
+                        }
                         Some(Action::Quit) => {
                             tray.take();
                             *control_flow = ControlFlow::Exit;
@@ -485,6 +629,24 @@ fn main() {
                 app.set_notify(items.notify.is_checked(), &items);
             } else if e.id == items.usage.id() {
                 util::open_url(USAGE_PAGE);
+            } else if e.id == items.update.id() {
+                if matches!(app.update, UpdateState::Available(_)) {
+                    app.install_update(&proxy);
+                } else {
+                    app.check_update(&proxy, true);
+                }
+                app.render(tray.as_ref(), &items, pop.as_mut());
+            } else {
+                #[cfg(not(any(target_os = "macos", windows)))]
+                if e.id == items.open.id()
+                    && let Some(p) = pop.as_mut()
+                {
+                    p.popover.tab = Tab::Now;
+                    p.visible = true;
+                    app.render(tray.as_ref(), &items, Some(&mut *p));
+                    p.show_in_corner();
+                    app.render(tray.as_ref(), &items, Some(p));
+                }
             }
         }
         _ => {}
