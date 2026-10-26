@@ -1,0 +1,25 @@
+[package]
+name = "picobar"
+version = "0.1.0"
+edition = "2024"
+description = "Ultra-light menu bar / tray monitor for Claude and OpenCode usage, limits and agents."
+license = "MIT"
+repository = "https://github.com/lido772/picobar"
+readme = "README.md"
+keywords = ["claude", "opencode", "menubar", "tray", "usage"]
+categories = ["command-line-utilities", "gui"]
+
+# Every dependency must be justified in docs/ARCHITECTURE.md (size budget).
+[dependencies]
+tao = "0.37.2"        # native event loop (NSApplication / Win32), no webview
+tray-icon = "0.26.1"  # menu bar item / tray icon + native menus (muda)
+
+[profile.release]
+opt-level = "z"     # optimize for size
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+debug = 1
