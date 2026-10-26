@@ -1,16 +1,6 @@
-//! Data sources. Each source is a pure "read local state → model" function,
-//! polled from the main loop. No async runtime, no background threads yet.
+//! Data sources: Claude limits (network, at most every few minutes), Claude
+//! Code logs and OpenCode's database (local, every refresh).
 
-mod agents;
-mod claude;
-mod opencode;
-
-use crate::model::Snapshot;
-
-pub fn snapshot() -> Snapshot {
-    Snapshot {
-        claude: claude::read(),
-        opencode: opencode::read(),
-        agents: agents::read(),
-    }
-}
+pub mod claude_limits;
+pub mod claude_logs;
+pub mod opencode;
