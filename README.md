@@ -17,8 +17,11 @@ refreshes (about 11 MB of memory, 0% CPU when idle).
 Download the latest build from [Releases](https://github.com/lido772/picobar/releases):
 
 - **macOS 11+** (Intel and Apple Silicon): open the `.dmg` and drag
-  PicoBar to Applications. The app is not notarized yet, so the first time,
-  right-click it in Applications and choose **Open**.
+  PicoBar to Applications. The app is not notarized yet, so macOS says it
+  "could not verify PicoBar is free of malware" the first time. Either:
+  - open **System Settings › Privacy & Security**, scroll down and click
+    **Open Anyway** next to PicoBar, then confirm; or
+  - run once in Terminal: `xattr -dr com.apple.quarantine /Applications/PicoBar.app`
 - **Windows 10+**: unzip and run `PicoBar.exe`.
 
 To start PicoBar at login: macOS, System Settings › General › Login Items;

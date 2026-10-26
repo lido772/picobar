@@ -25,4 +25,6 @@ First release. A native menu bar (macOS) / tray (Windows) item, under 2 MB.
   your existing Claude Code login. It is not a public API; if it changes or
   your login has expired, PicoBar keeps showing local token data.
 - macOS: install from the `.dmg` (drag PicoBar to Applications). The app is
-  not notarized yet: on first launch, right-click it and choose Open.
+  not notarized yet: after the first launch attempt, go to System Settings ›
+  Privacy & Security and click Open Anyway, or run
+  `xattr -dr com.apple.quarantine /Applications/PicoBar.app`.
