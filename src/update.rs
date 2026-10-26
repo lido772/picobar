@@ -54,13 +54,18 @@ struct GhAsset {
 }
 
 /// File name of this platform's build for `version`.
-pub fn asset_name(version: &str) -> String {
+/// None when no build is published for this platform.
+pub fn asset_name(version: &str) -> Option<String> {
     if cfg!(target_os = "macos") {
-        format!("PicoBar-{version}-macos-universal.dmg")
+        Some(format!("PicoBar-{version}-macos-universal.dmg"))
     } else if cfg!(windows) {
-        format!("PicoBar-{version}-windows-x64-portable.zip")
+        Some(format!("PicoBar-{version}-windows-x64-portable.zip"))
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        Some(format!("PicoBar-{version}-linux-aarch64.tar.gz"))
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(format!("PicoBar-{version}-linux-x86_64.tar.gz"))
     } else {
-        format!("PicoBar-{version}-linux-x86_64.tar.gz")
+        None
     }
 }
 
@@ -103,7 +108,7 @@ fn parse_latest(body: &str) -> Result<Option<Release>, String> {
             .map(|a| a.browser_download_url.clone())
     };
     Ok(Some(Release {
-        asset: find(&want).map(|u| (want.clone(), u)),
+        asset: want.and_then(|w| find(&w).map(|u| (w, u))),
         sums: find("SHA256SUMS.txt"),
         version,
         page: gh.html_url,
@@ -409,9 +414,20 @@ mod tests {
         assert!(!is_newer("0.2.0-beta", "0.2.0"));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_asset_names() {
+        let want = if cfg!(target_arch = "aarch64") {
+            "PicoBar-1.2.3-linux-aarch64.tar.gz"
+        } else {
+            "PicoBar-1.2.3-linux-x86_64.tar.gz"
+        };
+        assert_eq!(asset_name("1.2.3").as_deref(), Some(want));
+    }
+
     #[test]
     fn parses_latest_release() {
-        let name = asset_name("99.0.0");
+        let name = asset_name("99.0.0").unwrap();
         let body = format!(
             r#"{{"tag_name":"v99.0.0","html_url":"https://x/r","assets":[
                 {{"name":"{name}","browser_download_url":"https://x/a"}},

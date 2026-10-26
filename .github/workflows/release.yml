@@ -4,6 +4,8 @@ name: Release
 #   PicoBar-<v>-macos-universal.dmg
 #   PicoBar-<v>-windows-x64-portable.zip   (PicoBar.exe at the top level)
 #   PicoBar-<v>-linux-x86_64.tar.gz        (picobar at the top level)
+#   PicoBar-<v>-linux-aarch64.tar.gz       (picobar at the top level)
+#   picobar_<v>_<deb-arch>.deb             (amd64 and arm64)
 #   SHA256SUMS.txt
 
 on:
@@ -76,8 +78,16 @@ jobs:
             PicoBar-*-windows-x64-setup.exe
 
   linux:
-    # Oldest supported runner: binaries also run on newer glibc versions.
-    runs-on: ubuntu-22.04
+    # Oldest supported runners: binaries also run on newer glibc versions.
+    # Each arch builds natively on its own runner.
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - name: Build dependencies
@@ -91,10 +101,10 @@ jobs:
         run: bash scripts/package-linux.sh "${GITHUB_REF_NAME#v}" target/release/picobar .
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: linux-${{ matrix.arch }}
           path: |
-            PicoBar-*-linux-x86_64.tar.gz
-            picobar_*_amd64.deb
+            PicoBar-*-linux-*.tar.gz
+            picobar_*_*.deb
 
   release:
     needs: [macos, windows, linux]
