@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::settings::MenuBar;
 use crate::sources::claude_limits::{Bucket, Limits, LimitsError};
 use crate::sources::claude_logs::{self, Active, ClaudeLogs, SessionState, Tokens};
 use crate::sources::opencode::{OcState, OpenCodeStats};
@@ -34,11 +35,19 @@ impl Snapshot {
             .map(|b| b.pct.round().clamp(0.0, 100.0) as u8)
     }
 
-    /// Text next to the menu bar icon (macOS).
-    pub fn title(&self) -> String {
-        match self.session_pct() {
-            Some(p) => format!("{p}%"),
-            None => human(self.tokens.total()),
+    /// Text next to the menu bar icon (macOS, Linux); `None` hides it.
+    pub fn title(&self, mode: MenuBar) -> Option<String> {
+        let reset = || {
+            let left = self.session()?.resets_at? - self.now;
+            Some(util::countdown(left))
+        };
+        match mode {
+            MenuBar::Icon => None,
+            MenuBar::Reset => reset().or_else(|| self.title(MenuBar::Percent)),
+            MenuBar::Percent => Some(match self.session_pct() {
+                Some(p) => format!("{p}%"),
+                None => human(self.tokens.total()),
+            }),
         }
     }
 
@@ -468,7 +477,9 @@ mod tests {
     #[test]
     fn lines_with_limits() {
         let s = snap();
-        assert_eq!(s.title(), "62%");
+        assert_eq!(s.title(MenuBar::Percent).unwrap(), "62%");
+        assert_eq!(s.title(MenuBar::Reset).unwrap(), "1h48");
+        assert_eq!(s.title(MenuBar::Icon), None);
         assert_eq!(s.session_line(), "Session  62% · resets in 1h48");
         assert_eq!(s.weekly_line(), "Weekly  41% · resets in 3d 5h");
         assert_eq!(s.models_line(), "Weekly by model  Opus 84%");
@@ -495,7 +506,8 @@ mod tests {
         s.limits = None;
         s.limits_error = Some(LimitsError::Expired);
         s.window_start = None;
-        assert_eq!(s.title(), "2.81M");
+        assert_eq!(s.title(MenuBar::Percent).unwrap(), "2.81M");
+        assert_eq!(s.title(MenuBar::Reset).unwrap(), "2.81M");
         assert_eq!(
             s.session_line(),
             "Session  –  (open Claude Code to refresh your login)"

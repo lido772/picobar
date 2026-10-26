@@ -2,7 +2,6 @@
 
 use super::paint::{Canvas, Rgb};
 use super::text::{Face, Fonts};
-use crate::alerts::WARN_PCT;
 use crate::model::{AgentRow, AgentState, Snapshot, Trends, human};
 use crate::sources::claude_limits::LimitsError;
 use crate::update::{self, UpdateState};
@@ -63,6 +62,8 @@ pub struct View<'a> {
     pub agents: &'a [AgentRow],
     pub trends: &'a Trends,
     pub notify: bool,
+    /// Warning threshold in percent.
+    pub warn_pct: f32,
     /// Seconds since the limits were last fetched.
     pub updated_ago: Option<i64>,
     pub history_loading: bool,
@@ -244,7 +245,7 @@ fn footer(ui: &mut Ui, y: f32, v: &View) -> f32 {
         P + 46.0,
         y + 20.0,
         SUB,
-        "Notify on resets and at 80%",
+        &format!("Notify on resets and at {}%", v.warn_pct),
     );
     ui.hit(P, y, 240.0, 32.0, Action::ToggleNotify);
     let qw = 52.0;
@@ -413,7 +414,7 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
         w,
         8.0,
         pc / 100.0,
-        if pc >= WARN_PCT { AMBER } else { MINT },
+        if pc >= v.warn_pct { AMBER } else { MINT },
     );
     cy += 14.0;
     match s.session().and_then(|b| b.resets_at) {
@@ -524,7 +525,7 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
     if let Some(wk) = s.limits.as_ref().and_then(|l| l.weekly) {
         ui.cv.hline(x, cy, w, BORDER);
         cy += 12.0;
-        cy = weekly_row(ui, x, r, cy, "Weekly · all models", wk.pct, TEXT);
+        cy = weekly_row(ui, x, r, cy, "Weekly · all models", wk.pct, v.warn_pct);
         let reset = wk
             .resets_at
             .map(|t| format!("Resets {}", util::local_day_hm(t)));
@@ -534,7 +535,7 @@ fn now_tab(ui: &mut Ui, mut y: f32, v: &View) -> f32 {
         }
         for (name, b) in s.model_buckets() {
             cy += 4.0;
-            cy = weekly_row(ui, x, r, cy, &format!("Weekly · {name}"), b.pct, TEXT);
+            cy = weekly_row(ui, x, r, cy, &format!("Weekly · {name}"), b.pct, v.warn_pct);
         }
     }
     let _ = cy;
@@ -553,9 +554,9 @@ fn claude_card_height(s: &Snapshot) -> f32 {
     h + 4.0
 }
 
-fn weekly_row(ui: &mut Ui, x: f32, r: f32, y: f32, label: &str, pct: f32, base: Rgb) -> f32 {
+fn weekly_row(ui: &mut Ui, x: f32, r: f32, y: f32, label: &str, pct: f32, warn_pct: f32) -> f32 {
     ui.t(Face::Regular, 12.0, x, y + 11.0, SUB, label);
-    let warn = pct >= WARN_PCT;
+    let warn = pct >= warn_pct;
     ui.tr(
         Face::MonoBold,
         12.0,
@@ -570,7 +571,7 @@ fn weekly_row(ui: &mut Ui, x: f32, r: f32, y: f32, label: &str, pct: f32, base: 
         r - x,
         6.0,
         pct / 100.0,
-        if warn { AMBER } else { base },
+        if warn { AMBER } else { TEXT },
     );
     y + 30.0
 }

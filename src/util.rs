@@ -48,6 +48,26 @@ pub fn hidden(program: &str) -> Command {
     cmd
 }
 
+/// The running executable, unless it sits where it would vanish (a
+/// translocated app or a mounted DMG) and so cannot be registered.
+pub fn stable_exe() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    check_stable(&exe.to_string_lossy())?;
+    Ok(exe)
+}
+
+fn check_stable(path: &str) -> Result<(), String> {
+    // A DMG mounts the app at the volume root; other apps on external drives are fine.
+    let on_dmg = path.strip_prefix("/Volumes/").is_some_and(|r| {
+        r.split_once('/')
+            .is_some_and(|(_, p)| p.starts_with("PicoBar.app/"))
+    });
+    if path.contains("/AppTranslocation/") || on_dmg {
+        return Err("Move PicoBar to Applications first".into());
+    }
+    Ok(())
+}
+
 /// Local UTC offset in seconds at unix time `ts` (DST-aware on macOS/Linux).
 #[cfg(unix)]
 pub fn utc_offset(ts: i64) -> i64 {
@@ -197,6 +217,16 @@ mod tests {
         );
         assert_eq!(parse_iso("2026-10-26T09:28:52+0000"), Some(1_793_006_932));
         assert_eq!(parse_iso("garbage"), None);
+    }
+
+    #[test]
+    fn rejects_unstable_exe_paths() {
+        assert!(check_stable("/Applications/PicoBar.app/Contents/MacOS/picobar").is_ok());
+        assert!(
+            check_stable("/Volumes/Ext/Applications/PicoBar.app/Contents/MacOS/picobar").is_ok()
+        );
+        assert!(check_stable("/private/var/folders/x/AppTranslocation/y/d/PicoBar.app").is_err());
+        assert!(check_stable("/Volumes/PicoBar/PicoBar.app/Contents/MacOS/picobar").is_err());
     }
 
     #[test]

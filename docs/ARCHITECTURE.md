@@ -31,7 +31,9 @@ A change that breaks a budget is rejected, whatever the feature.
 src/
   main.rs            event loop, tray item, menu, refresh scheduling
   model.rs           Snapshot + menu text (pure, unit-tested)
-  alerts.rs          when to notify: resets and the 80% threshold
+  alerts.rs          when to notify: resets and the warning threshold
+  settings.rs        user settings: key=value file in config_dir (pure parse, tested)
+  autostart.rs       launch at login: LaunchAgent / HKCU Run / XDG autostart
   notify.rs          native notifications via OS tools
   icon.rs            procedurally drawn ring gauge (template image on macOS)
   util.rs            time parsing, countdowns, paths, portable mode, child processes
@@ -39,7 +41,7 @@ src/
   demo.rs            fictional data for screenshots
   ui/                popover window: painter, text, layout
   sources/
-    claude_limits.rs session / weekly limits (network, every 3 min)
+    claude_limits.rs session / weekly limits (network, every 3 min by default)
     claude_logs.rs   tokens + active sessions from ~/.claude/projects
     opencode.rs      tokens, cost, active sessions from opencode.db
     claude_hook.rs   `--hook` entry, permission markers, hook install/uninstall
@@ -55,7 +57,7 @@ src/
 | `rusqlite` (bundled) | Read OpenCode's SQLite database | ~930 KB; macOS's system libsqlite3 crashed when linked directly, Windows has none |
 | `softbuffer` | Put our pixels in the popover window (no GPU stack) | small |
 | `ab_glyph` | Rasterize text with the system's fonts (memory-mapped, not embedded) | small |
-| `libc` / `windows-sys` | Local time offset | already in the tree |
+| `libc` / `windows-sys` | Local time offset; HKCU Run key (`Win32_System_Registry`, from 2026-10-26, pending size-guardian) | already in the tree |
 
 Candidates for later, measured before adoption: a popover renderer
 (`tiny-skia` vs `egui` behind a feature), a smaller SQLite build.
@@ -108,6 +110,49 @@ opt-in Claude Code hook tells us. No new crate, no shell script.
   `picobar`. Keys get reordered, because `serde_json` sorts them unless
   `preserve_order` is enabled, and that feature is adopted only if
   size-guardian measures it free (that is, `indexmap` is already in the tree).
+
+## Settings (decided 2026-10-26)
+
+No settings window, no new crate. Four settings live in the native tray
+menu under a **Settings** submenu; the popover only reflects them.
+
+- **Storage.** `config_dir()/settings`, one `key=value` per line, parsed with
+  `std` (`split_once('=')`). Unknown keys and invalid values fall back to the
+  default, so a broken file never blocks startup. Written atomically
+  (temp + rename). Keys: `notify=on|off`, `warn=70|80|90`,
+  `refresh=3|5|10|15` (minutes), `menubar=percent|reset|icon`. Chosen over
+  `serde_json`: same size or smaller, hand-editable, no derive code.
+- **Migration.** If `notify` is absent, it is `off` when the old
+  `notifications-off` marker exists. The first save writes the full file and
+  deletes the marker.
+- **Threshold** (default 80) is one value: passed to `Alerts::check`
+  (hysteresis stays threshold − 5), `icon::gauge` / `is_template` and the
+  popover `View`. Menu and popover labels read "at N%".
+- **Refresh** sets only the limits fetch interval. The 60 s local tick
+  stays (cheap, keeps countdowns current). Minimum stays 3 min: the endpoint
+  is unofficial, so we never poll faster than before. Stale cutoff becomes
+  5 × interval (900 s at the default, as today).
+- **Menu bar display** (macOS and Linux only; Windows trays have no title):
+  `percent` (today: "42%", tokens when no limits), `reset` (session
+  countdown, e.g. "1h48", else as percent), `icon` (no title).
+- **Launch at login** is not stored: the checkbox shows the state on disk,
+  checked only when the entry names the running executable (like
+  `claude_hook::installed`). Refused from a translocated app or a mounted DMG
+  ("Move PicoBar to Applications first"), shared with the hook install.
+  - macOS: `~/Library/LaunchAgents/io.github.lido772.picobar.plist`,
+    `RunAtLoad`, `LimitLoadToSessionType=Aqua`, path XML-escaped. Rejected:
+    `SMAppService` (macOS 13+, our minimum is 11, needs objc2 as a direct
+    dependency); System Events login items (Automation prompt).
+  - Windows: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value
+    `PicoBar` = quoted exe path, via `windows-sys` `Win32_System_Registry`
+    (a feature, not a crate). The installer's startup task writes the same
+    value instead of a Startup-folder shortcut and deletes the old
+    `{userstartup}\PicoBar.lnk`; the app also treats that legacy shortcut as
+    "on" and removes it when toggled.
+  - Linux: `$XDG_CONFIG_HOME` (or `~/.config`)`/autostart/picobar.desktop`,
+    `Exec` quoted per the Desktop Entry spec.
+- **Known limit.** Standalone mode (no tray) has no menu, so settings there
+  are changed by editing the file.
 
 ## Design reference
 
