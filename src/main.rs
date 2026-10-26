@@ -3,10 +3,12 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod alerts;
+mod autostart;
 mod demo;
 mod icon;
 mod model;
 mod notify;
+mod settings;
 mod sources;
 mod ui;
 mod update;
@@ -16,10 +18,13 @@ use std::time::{Duration, Instant};
 
 use tao::event::{ElementState, Event, MouseButton, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{
+    CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu,
+};
 use tray_icon::{MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use model::{AgentRow, SESSION_SECS, Snapshot, Trends};
+use settings::{MenuBar, Settings};
 use sources::claude_hook;
 use sources::claude_limits::{self, Limits, LimitsError};
 use sources::claude_logs::ClaudeLogs;
@@ -28,13 +33,10 @@ use ui::PopoverWindow;
 use ui::popover::{Action, Tab, View};
 use update::{Release, UpdateState};
 
-/// Local sources are re-read every tick; the limits endpoint less often.
+/// Local sources are re-read every tick; the limits endpoint less often
+/// (`Settings::refresh_min`).
 const TICK: Duration = Duration::from_secs(60);
-const LIMITS_EVERY_SECS: i64 = 180;
-/// Limits older than this are not shown.
-const LIMITS_STALE_SECS: i64 = 900;
 const USAGE_PAGE: &str = "https://claude.ai/settings/usage";
-const NOTIFY_OFF_FILE: &str = "notifications-off";
 const UPDATE_CHECK_EVERY_SECS: i64 = 86_400;
 
 enum UserEvent {
@@ -47,6 +49,39 @@ enum UserEvent {
     UpdateInstalled,
 }
 
+/// A radio-like group of check items in a submenu, kept in sync by hand.
+struct Choice<T> {
+    menu: Submenu,
+    items: Vec<(CheckMenuItem, T)>,
+}
+
+impl<T: Copy + PartialEq> Choice<T> {
+    fn new(title: &str, options: Vec<(String, T)>, current: T) -> Self {
+        let menu = Submenu::new(title, true);
+        let items: Vec<_> = options
+            .into_iter()
+            .map(|(label, v)| (CheckMenuItem::new(label, true, v == current, None), v))
+            .collect();
+        for (item, _) in &items {
+            menu.append(item).expect("menu");
+        }
+        Choice { menu, items }
+    }
+
+    /// If `id` is one of ours, check only it and return its value.
+    fn pick(&self, id: &MenuId) -> Option<T> {
+        let v = self.items.iter().find(|(i, _)| i.id() == id)?.1;
+        for (item, x) in &self.items {
+            item.set_checked(*x == v);
+        }
+        Some(v)
+    }
+}
+
+fn notify_label(warn: u8) -> String {
+    format!("Notify on resets and at {warn}%")
+}
+
 struct Items {
     session: MenuItem,
     weekly: MenuItem,
@@ -57,6 +92,11 @@ struct Items {
     refresh: MenuItem,
     notify: CheckMenuItem,
     prompts: CheckMenuItem,
+    settings: Submenu,
+    warn: Choice<u8>,
+    refresh_every: Choice<u8>,
+    menubar: Choice<MenuBar>,
+    login: CheckMenuItem,
     usage: MenuItem,
     update: MenuItem,
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -65,8 +105,40 @@ struct Items {
 }
 
 impl Items {
-    fn new(notify: bool) -> Self {
+    fn new(s: &Settings) -> Self {
         let info = |text: &str| MenuItem::new(text, false, None);
+        let warn = Choice::new(
+            "Warn at",
+            settings::WARN_CHOICES
+                .map(|w| (format!("{w}%"), w))
+                .to_vec(),
+            s.warn,
+        );
+        let refresh_every = Choice::new(
+            "Refresh limits every",
+            settings::REFRESH_CHOICES
+                .map(|m| (format!("{m} min"), m))
+                .to_vec(),
+            s.refresh_min,
+        );
+        let menubar = Choice::new(
+            "Menu bar shows",
+            vec![
+                ("Percent".into(), MenuBar::Percent),
+                ("Time to reset".into(), MenuBar::Reset),
+                ("Icon only".into(), MenuBar::Icon),
+            ],
+            s.menubar,
+        );
+        let login = CheckMenuItem::new("Launch at login", true, autostart::enabled(), None);
+        let settings = Submenu::new("Settings", true);
+        settings.append(&warn.menu).expect("menu");
+        settings.append(&refresh_every.menu).expect("menu");
+        #[cfg(not(windows))] // Windows trays have no title
+        settings.append(&menubar.menu).expect("menu");
+        settings
+            .append_items(&[&PredefinedMenuItem::separator(), &login])
+            .expect("menu");
         Items {
             session: info("Session  –"),
             weekly: info("Weekly  –"),
@@ -75,13 +147,18 @@ impl Items {
             opencode: info("OpenCode  –"),
             active: info("Active  –"),
             refresh: MenuItem::new("Refresh now", true, None),
-            notify: CheckMenuItem::new("Notify on resets and at 80%", true, notify, None),
+            notify: CheckMenuItem::new(notify_label(s.warn), true, s.notify, None),
             prompts: CheckMenuItem::new(
                 "Show Claude permission prompts",
                 true,
                 claude_hook::installed(),
                 None,
             ),
+            settings,
+            warn,
+            refresh_every,
+            menubar,
+            login,
             usage: MenuItem::new("Open Claude usage page", true, None),
             update: MenuItem::new("Check for updates", true, None),
             #[cfg(not(any(target_os = "macos", windows)))]
@@ -107,6 +184,7 @@ impl Items {
             &self.refresh,
             &self.notify,
             &self.prompts,
+            &self.settings,
             &self.usage,
             &self.update,
             &PredefinedMenuItem::separator(),
@@ -128,13 +206,17 @@ struct App {
     last_fetch: i64,
     fetching: bool,
     alerts: alerts::Alerts,
-    notify: bool,
+    settings: Settings,
     update: UpdateState,
     last_update_check: i64,
     announced_version: Option<String>,
 }
 
 impl App {
+    fn limits_every(&self) -> i64 {
+        i64::from(self.settings.refresh_min) * 60
+    }
+
     fn fetch_limits(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if self.fetching {
             return;
@@ -168,7 +250,7 @@ impl App {
         self.update = match result {
             Ok(Some(r)) => {
                 if !manual
-                    && self.notify
+                    && self.settings.notify
                     && self.announced_version.as_deref() != Some(r.version.as_str())
                 {
                     notify::send(
@@ -238,7 +320,7 @@ impl App {
         let limits = self
             .limits
             .clone()
-            .filter(|_| now - self.limits_at <= LIMITS_STALE_SECS);
+            .filter(|_| now - self.limits_at <= 5 * self.limits_every());
         let window_start = limits
             .as_ref()
             .and_then(|l| l.session?.resets_at)
@@ -283,23 +365,28 @@ impl App {
         if let Some(t) = tray {
             let pct = snap.session_pct();
             let attention = snap.waiting > 0;
-            let gauge = icon::gauge(pct, attention);
+            let warn = f32::from(self.settings.warn);
+            let gauge = icon::gauge(pct, attention, warn);
             #[cfg(target_os = "macos")]
-            let _ = if icon::is_template(pct, attention) {
+            let _ = if icon::is_template(pct, attention, warn) {
                 t.set_icon_templated(Some(gauge))
             } else {
                 t.set_icon(Some(gauge))
             };
             #[cfg(not(target_os = "macos"))]
             let _ = t.set_icon(Some(gauge));
-            t.set_title(Some(snap.title()));
+            t.set_title(snap.title(self.settings.menubar));
             let _ = t.set_tooltip(Some(snap.tooltip()));
         }
 
-        let mut msgs = self.alerts.check(snap.limits.as_ref(), snap.now);
+        let mut msgs = self.alerts.check(
+            snap.limits.as_ref(),
+            snap.now,
+            f32::from(self.settings.warn),
+        );
         msgs.extend(self.alerts.check_agents(&agents));
         for (title, body) in msgs {
-            if self.notify {
+            if self.settings.notify {
                 notify::send(&title, &body);
             }
         }
@@ -314,7 +401,8 @@ impl App {
                 snap: &snap,
                 agents: &agents,
                 trends: &trends,
-                notify: self.notify,
+                notify: self.settings.notify,
+                warn_pct: f32::from(self.settings.warn),
                 updated_ago: (self.limits_at > 0).then(|| now - self.limits_at),
                 history_loading: !self.logs_ready,
                 update: &self.update,
@@ -324,21 +412,28 @@ impl App {
     }
 
     fn set_notify(&mut self, on: bool, items: &Items) {
-        self.notify = on;
+        self.settings.notify = on;
         items.notify.set_checked(on);
-        if let Some(d) = util::config_dir() {
-            let path = d.join(NOTIFY_OFF_FILE);
-            let _ = if on {
-                std::fs::remove_file(path)
-            } else {
-                std::fs::write(path, b"")
-            };
-        }
+        settings::save(self.settings);
     }
-}
 
-fn notify_enabled() -> bool {
-    util::config_dir().is_none_or(|d| !d.join(NOTIFY_OFF_FILE).exists())
+    /// Apply a click on one of the Settings submenu groups; false if `id` is not one.
+    fn pick_setting(&mut self, id: &MenuId, items: &Items) -> bool {
+        let mut s = self.settings;
+        if let Some(w) = items.warn.pick(id) {
+            s.warn = w;
+            items.notify.set_text(notify_label(w));
+        } else if let Some(m) = items.refresh_every.pick(id) {
+            s.refresh_min = m;
+        } else if let Some(m) = items.menubar.pick(id) {
+            s.menubar = m;
+        } else {
+            return false;
+        }
+        self.settings = s;
+        settings::save(s);
+        true
+    }
 }
 
 /// `picobar --once`: print what the menu would show and exit.
@@ -393,7 +488,6 @@ fn render_to_files(dir: &str, demo: bool) {
     let real = || {
         let mut app = App {
             logs_ready: true,
-            notify: true,
             ..Default::default()
         };
         app.read_local();
@@ -420,6 +514,7 @@ fn render_to_files(dir: &str, demo: bool) {
             agents: &agents,
             trends: &trends,
             notify: true,
+            warn_pct: 80.0,
             updated_ago: Some(12),
             history_loading: false,
             update: &UpdateState::Unknown,
@@ -494,11 +589,11 @@ fn main() {
         }));
     }
 
-    let notify = notify_enabled();
-    let items = Items::new(notify);
+    let settings = settings::load();
+    let items = Items::new(&settings);
     let menu = items.menu();
     let mut app = App {
-        notify,
+        settings,
         ..Default::default()
     };
     let mut tray: Option<TrayIcon> = None;
@@ -514,9 +609,10 @@ fn main() {
                 .with_menu_on_left_click(false)
                 .with_tooltip("PicoBar");
             #[cfg(target_os = "macos")]
-            let builder = builder.with_icon_templated(icon::gauge(None, false));
+            let builder =
+                builder.with_icon_templated(icon::gauge(None, false, f32::from(app.settings.warn)));
             #[cfg(not(target_os = "macos"))]
-            let builder = builder.with_icon(icon::gauge(None, false));
+            let builder = builder.with_icon(icon::gauge(None, false, f32::from(app.settings.warn)));
             tray = builder.build().ok();
             standalone |= tray.is_none();
             pop = PopoverWindow::new(target);
@@ -535,7 +631,7 @@ fn main() {
             *control_flow = ControlFlow::WaitUntil(Instant::now() + TICK);
         }
         Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-            if util::now() - app.last_fetch >= LIMITS_EVERY_SECS {
+            if util::now() - app.last_fetch >= app.limits_every() {
                 app.fetch_limits(&proxy);
             }
             if util::now() - app.last_update_check >= UPDATE_CHECK_EVERY_SECS {
@@ -607,7 +703,7 @@ fn main() {
                             app.fetch_limits(&proxy);
                             app.read_local();
                         }
-                        Some(Action::ToggleNotify) => app.set_notify(!app.notify, &items),
+                        Some(Action::ToggleNotify) => app.set_notify(!app.settings.notify, &items),
                         Some(Action::Update) => app.install_update(&proxy),
                         Some(Action::OpenReleasePage) => {
                             let page = match &app.update {
@@ -653,6 +749,13 @@ fn main() {
                     notify::send("Could not change Claude settings", &e);
                 }
                 items.prompts.set_checked(claude_hook::installed());
+            } else if e.id == items.login.id() {
+                if let Err(e) = autostart::set(items.login.is_checked()) {
+                    notify::send("Could not change launch at login", &e);
+                }
+                items.login.set_checked(autostart::enabled());
+            } else if app.pick_setting(&e.id, &items) {
+                app.render(tray.as_ref(), &items, pop.as_mut());
             } else if e.id == items.usage.id() {
                 util::open_url(USAGE_PAGE);
             } else if e.id == items.update.id() {

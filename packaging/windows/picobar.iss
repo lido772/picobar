@@ -35,7 +35,12 @@ Source: "{#Source}"; DestDir: "{app}"; DestName: "PicoBar.exe"; Flags: ignorever
 
 [Icons]
 Name: "{userprograms}\PicoBar"; Filename: "{app}\PicoBar.exe"
-Name: "{userstartup}\PicoBar"; Filename: "{app}\PicoBar.exe"; Tasks: startup
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PicoBar"; ValueData: """{app}\PicoBar.exe"""; Tasks: startup
+
+[InstallDelete]
+Type: files; Name: "{userstartup}\PicoBar.lnk"
 
 [Tasks]
 Name: "startup"; Description: "Start PicoBar when I sign in"
@@ -45,3 +50,10 @@ Filename: "{app}\PicoBar.exe"; Description: "Start PicoBar"; Flags: nowait posti
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM PicoBar.exe /F"; Flags: runhidden; RunOnceId: "StopPicoBar"
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PicoBar');
+end;

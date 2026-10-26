@@ -210,9 +210,7 @@ fn save(path: &PathBuf, root: &Value) -> Result<(), String> {
 
 pub fn install() -> Result<(), String> {
     let (path, cmd) = settings_path().zip(command()).ok_or("no home folder")?;
-    if std::env::current_exe().is_ok_and(|e| e.to_string_lossy().contains("/AppTranslocation/")) {
-        return Err("Move PicoBar to Applications first".into());
-    }
+    util::stable_exe()?;
     let mut root = load(&path)?;
     merge(&mut root, &cmd)?;
     save(&path, &root)

@@ -2,8 +2,6 @@
 
 use tray_icon::Icon;
 
-use crate::alerts::WARN_PCT;
-
 const SIZE: u32 = 32;
 const AMBER: [u8; 3] = [245, 181, 71];
 const MINT: [u8; 3] = [94, 230, 168];
@@ -13,16 +11,16 @@ const CORAL: [u8; 3] = [255, 122, 107];
 /// Whether the icon is drawn as a macOS template image (monochrome, adapts to
 /// light and dark menu bars). Colored when past the threshold or when an
 /// agent waits for you.
-pub fn is_template(pct: Option<u8>, attention: bool) -> bool {
-    cfg!(target_os = "macos") && !attention && pct.is_none_or(|p| (p as f32) < WARN_PCT)
+pub fn is_template(pct: Option<u8>, attention: bool, warn: f32) -> bool {
+    cfg!(target_os = "macos") && !attention && pct.is_none_or(|p| (p as f32) < warn)
 }
 
 /// Ring that fills clockwise with `pct` (faint when unknown), with a coral
 /// dot when an agent is waiting for you.
-pub fn gauge(pct: Option<u8>, attention: bool) -> Icon {
-    let template = is_template(pct, attention);
+pub fn gauge(pct: Option<u8>, attention: bool, warn: f32) -> Icon {
+    let template = is_template(pct, attention, warn);
     let fill = match pct {
-        Some(p) if p as f32 >= WARN_PCT => AMBER,
+        Some(p) if p as f32 >= warn => AMBER,
         _ if template => [0, 0, 0],
         _ if cfg!(target_os = "macos") => GREY,
         _ => MINT,

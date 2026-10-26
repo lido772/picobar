@@ -52,7 +52,11 @@ Left click opens the popover; right click opens a compact menu.
 - Insights: top model, cache share, busiest day
 
 **Notifications** when your session or weekly limit resets, and when usage
-crosses 80%. Can be turned off from the popover or the menu.
+crosses the warn threshold. Can be turned off from the popover or the menu.
+
+**Settings** (in the right-click menu) — warn threshold (70, 80 or 90%),
+how often limits are refreshed (3, 5, 10 or 15 min), what the menu bar shows
+(percent, time to reset, or icon only; not on Windows), and launch at login.
 
 ## Install
 
@@ -86,9 +90,9 @@ next to PicoBar, or run once in Terminal:
   extension). Without a tray, PicoBar opens as a small window; `picobar
   --window` does the same on purpose. The tray menu has **Open PicoBar**.
 
-To start PicoBar at login: macOS, System Settings › General › Login Items;
-Windows, the installer option or a shortcut in `shell:startup`; Linux, your
-desktop's autostart settings.
+To start PicoBar at login, open the menu and choose **Settings › Launch at
+login**. On Windows the installer option also works; Linux writes an entry to
+`~/.config/autostart`.
 
 ## Updates
 
@@ -148,7 +152,6 @@ Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 
 ## Roadmap
 
-- Settings: threshold, refresh interval, menu bar display mode, launch at login
 - Light theme for the popover
 - Signed and notarized macOS builds, signed Windows builds
 

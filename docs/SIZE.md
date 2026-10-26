@@ -10,3 +10,4 @@ Memory is the physical footprint (what Activity Monitor shows), measured after 2
 | 2026-10-26 | 0.2.0-dev | x86_64-apple-darwin | 2062 KB | 16 MB | 0.0 % | popover (softbuffer + ab_glyph), 35-day history |
 | 2026-10-26 | 0.2.0 | x86_64-unknown-linux-gnu | 2434 KB | 18.5 MB private | 0.0 % | GTK 3 + AppIndicator |
 | 2026-10-26 | 0.2.0+hook (uncommitted) | x86_64-apple-darwin | 2119 KB | 14 MB | 0.0 % | claude permission-prompt hook; Cargo.toml/Cargo.lock unchanged, 8 direct deps |
+| 2026-10-26 | 0.2.0+settings (uncommitted) | x86_64-apple-darwin | 2131 KB | 14 MB | 0.0 % | settings + autostart; Cargo.lock unchanged, no new crates, 8 direct deps; windows-sys gets Win32_System_Registry (bindings only, Windows not built here) |

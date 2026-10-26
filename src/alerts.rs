@@ -4,8 +4,6 @@ use crate::model::{AgentRow, AgentState};
 use crate::sources::claude_limits::{Bucket, Limits};
 use crate::util;
 
-pub const WARN_PCT: f32 = 80.0;
-
 #[derive(Default)]
 pub struct Alerts {
     session: Watch,
@@ -21,7 +19,8 @@ struct Watch {
     /// Next known reset time.
     reset_at: Option<i64>,
     notified_reset: Option<i64>,
-    warned: bool,
+    /// Threshold the last warning was sent for.
+    warned_at: Option<f32>,
     /// Skip the threshold warning on the very first reading after launch.
     primed: bool,
 }
@@ -30,11 +29,12 @@ pub type Message = (String, String);
 
 impl Alerts {
     /// Call on every tick with the latest known limits (possibly stale or none).
-    pub fn check(&mut self, limits: Option<&Limits>, now: i64) -> Vec<Message> {
+    pub fn check(&mut self, limits: Option<&Limits>, now: i64, warn: f32) -> Vec<Message> {
         let mut out = Vec::new();
         self.session.update(
             limits.and_then(|l| l.session),
             now,
+            warn,
             (
                 "Claude session reset",
                 "You're back to 100% for a new 5-hour window.",
@@ -45,6 +45,7 @@ impl Alerts {
         self.weekly.update(
             limits.and_then(|l| l.weekly),
             now,
+            warn,
             (
                 "Claude weekly limit reset",
                 "Your weekly usage is back to 0%.",
@@ -85,6 +86,7 @@ impl Watch {
         &mut self,
         bucket: Option<Bucket>,
         now: i64,
+        warn: f32,
         reset_msg: (&str, &str),
         name: &str,
         out: &mut Vec<Message>,
@@ -94,7 +96,7 @@ impl Watch {
             && self.notified_reset != Some(r)
         {
             self.notified_reset = Some(r);
-            self.warned = false;
+            self.warned_at = None;
             out.push((reset_msg.0.into(), reset_msg.1.into()));
         }
         let Some(b) = bucket else { return };
@@ -103,17 +105,17 @@ impl Watch {
         {
             self.reset_at = Some(r);
         }
-        if b.pct >= WARN_PCT {
-            if !self.warned && self.primed {
+        if b.pct >= warn {
+            if self.warned_at != Some(warn) && self.primed {
                 let when = b
                     .resets_at
                     .map(|r| format!("Resets in {}.", util::countdown(r - now)))
                     .unwrap_or_default();
                 out.push((format!("{name} at {:.0}%", b.pct), when));
             }
-            self.warned = true;
-        } else if self.notified_reset.is_none() || b.pct < WARN_PCT - 5.0 {
-            self.warned = false;
+            self.warned_at = Some(warn);
+        } else if self.notified_reset.is_none() || b.pct < warn - 5.0 {
+            self.warned_at = None;
         }
         self.primed = true;
     }
@@ -159,26 +161,35 @@ mod tests {
     #[test]
     fn warns_once_when_crossing_threshold() {
         let mut a = Alerts::default();
-        assert!(a.check(Some(&limits(50.0, 1000)), 0).is_empty());
-        let m = a.check(Some(&limits(81.0, 1000)), 100);
+        assert!(a.check(Some(&limits(50.0, 1000)), 0, 80.0).is_empty());
+        let m = a.check(Some(&limits(81.0, 1000)), 100, 80.0);
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].0, "Claude session at 81%");
-        assert!(a.check(Some(&limits(85.0, 1000)), 200).is_empty());
+        assert!(a.check(Some(&limits(85.0, 1000)), 200, 80.0).is_empty());
+    }
+
+    #[test]
+    fn warns_again_for_a_higher_threshold() {
+        let mut a = Alerts::default();
+        a.check(Some(&limits(50.0, 1000)), 0, 70.0);
+        assert_eq!(a.check(Some(&limits(72.0, 1000)), 1, 70.0).len(), 1);
+        assert!(a.check(Some(&limits(77.0, 1000)), 2, 80.0).is_empty());
+        assert_eq!(a.check(Some(&limits(81.0, 1000)), 3, 80.0).len(), 1);
     }
 
     #[test]
     fn no_warning_on_first_reading() {
         let mut a = Alerts::default();
-        assert!(a.check(Some(&limits(90.0, 1000)), 0).is_empty());
+        assert!(a.check(Some(&limits(90.0, 1000)), 0, 80.0).is_empty());
     }
 
     #[test]
     fn notifies_reset_once_even_offline() {
         let mut a = Alerts::default();
-        a.check(Some(&limits(40.0, 1000)), 0);
-        let m = a.check(None, 1000);
+        a.check(Some(&limits(40.0, 1000)), 0, 80.0);
+        let m = a.check(None, 1000, 80.0);
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].0, "Claude session reset");
-        assert!(a.check(None, 1060).is_empty());
+        assert!(a.check(None, 1060, 80.0).is_empty());
     }
 }
