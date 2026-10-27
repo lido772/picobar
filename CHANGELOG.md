@@ -4,10 +4,11 @@
 
 ### Added
 
-- Homebrew install on macOS without the Gatekeeper prompt: `brew tap
+- Homebrew install on Apple Silicon without the Gatekeeper prompt: `brew tap
   lido772/picobar https://github.com/lido772/picobar && brew install
   picobar` builds from source. The built-in updater is off for Homebrew
   installs.
+- `install.sh`: one-line install on macOS (Intel and Apple Silicon) without the Gatekeeper prompt; checks the release's SHA256SUMS.
 
 ## [0.3.0] - 2026-10-27
 
