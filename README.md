@@ -157,7 +157,23 @@ Checked in CI by `scripts/size.sh`. History in [docs/SIZE.md](docs/SIZE.md).
 
 ## Roadmap
 
-- Signed and notarized macOS builds, signed Windows builds
+- Signed and notarized macOS builds, signed Windows builds (in progress, see Code signing policy)
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate
+by [SignPath Foundation](https://signpath.org).
+
+- Only the Windows `PicoBar.exe` and installer built by this repository's
+  GitHub Actions release workflow (GitHub-hosted runners, tagged `v*`) are
+  signed. Each signing request is approved manually by the maintainer.
+- Roles: author, reviewer and approver is [@lido772](https://github.com/lido772).
+- Privacy: PicoBar does not transfer any information to other networked
+  systems unless you ask it to. Its only network access is the daily GitHub
+  release check and the update download described under Updates; your usage
+  data stays on your machine.
+
+Until signing is live, Windows builds are unsigned and SmartScreen may warn.
 
 ## License
 
