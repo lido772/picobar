@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Homebrew install on macOS without the Gatekeeper prompt: `brew tap
+  lido772/picobar https://github.com/lido772/picobar && brew install
+  picobar` builds from source. The built-in updater is off for Homebrew
+  installs.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added
