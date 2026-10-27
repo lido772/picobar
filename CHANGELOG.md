@@ -1,12 +1,34 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-10-27
 
 ### Added
 
+- Claude permission prompts: an opt-in menu item, "Show Claude permission
+  prompts", adds a Claude Code hook. A session waiting for you to approve a
+  tool shows as "Needs permission" at the top of Agents, lights the coral
+  badge and sends a notification. Your other hooks are kept and
+  `settings.json` is backed up once before the first change.
+- Settings submenu: warn threshold (70, 80 or 90%), limits refresh interval
+  (3, 5, 10 or 15 min), what the menu bar shows (percent, time to reset or
+  icon only; not on Windows) and Launch at login (a LaunchAgent on macOS,
+  the Run key on Windows, an autostart entry on Linux).
 - Light theme for the popover. Settings > Appearance: System (follows the OS
   on macOS and Windows, dark on Linux), Light or Dark.
 - `picobar --render <dir> --demo --light` draws the light popover.
+- Linux arm64 builds (`.deb` and `.tar.gz`); built-in updates pick the
+  matching architecture.
+
+### Changed
+
+- Settings live in a `settings` file in the config folder; the old
+  notifications switch is carried over.
+- The Windows installer's start-at-sign-in option now uses the same Run key
+  as the app, replaces the old Startup-folder shortcut and is removed on
+  uninstall.
+- PicoBar refuses to install the hook or the login item while it runs from
+  the disk image or a translocated path on macOS; move it to Applications
+  first.
 
 ## [0.2.0] - 2026-10-26
 

@@ -1,5 +1,5 @@
 ; PicoBar installer (Inno Setup 6). Built in CI:
-;   ISCC.exe /DVersion=0.2.0 /DSource=path\to\PicoBar.exe packaging\windows\picobar.iss
+;   ISCC.exe /DVersion=0.3.0 /DSource=path\to\PicoBar.exe packaging\windows\picobar.iss
 ; Installs per user (no admin rights), so the built-in updater can replace
 ; PicoBar.exe in place.
 
