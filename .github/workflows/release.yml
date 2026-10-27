@@ -7,13 +7,16 @@ name: Release
 #   PicoBar-<v>-linux-aarch64.tar.gz       (picobar at the top level)
 #   picobar_<v>_<deb-arch>.deb             (amd64 and arm64)
 #   SHA256SUMS.txt
+# Windows exe + installer are Authenticode-signed via SignPath when
+# vars.SIGNPATH_ORGANIZATION_ID is set; see docs/SIGNING.md.
+# SHA256SUMS.txt is computed in the release job, i.e. over signed files.
 
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,16 +50,48 @@ jobs:
           scripts/make-dmg.sh "$APP" "PicoBar-$VERSION-macos-universal.dmg"
       - uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: dist-macos
           path: PicoBar-*-macos-universal.dmg
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
+      - name: Upload unsigned PicoBar.exe
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        id: unsigned-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exe
+          retention-days: 1
+          path: target/release/picobar.exe
+      - name: Sign PicoBar.exe (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: picobar
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: exe
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-exe
+      - name: Use signed PicoBar.exe
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        run: |
+          Copy-Item signed-exe/picobar.exe target/release/picobar.exe -Force
+          $st = (Get-AuthenticodeSignature target/release/picobar.exe).Status
+          if ($st -ne 'Valid') { throw "picobar.exe signature: $st" }
       - name: Portable zip and installer
         shell: pwsh
         run: |
@@ -70,9 +105,46 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc /Q "/DVersion=$version" "/DSource=$PWD\target\release\picobar.exe" "/O$PWD" packaging\windows\picobar.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage installer under a fixed name
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          New-Item -ItemType Directory -Force stage | Out-Null
+          Copy-Item "PicoBar-$version-windows-x64-setup.exe" stage/PicoBar-setup.exe
+      - name: Upload unsigned installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        id: unsigned-setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: stage/PicoBar-setup.exe
+          retention-days: 1
+      - name: Sign installer (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: picobar
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-setup
+      - name: Use signed installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          $dest = "PicoBar-$version-windows-x64-setup.exe"
+          Copy-Item signed-setup/PicoBar-setup.exe $dest -Force
+          $st = (Get-AuthenticodeSignature $dest).Status
+          if ($st -ne 'Valid') { throw "$dest signature: $st" }
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
+          name: dist-windows
           path: |
             PicoBar-*-windows-x64-portable.zip
             PicoBar-*-windows-x64-setup.exe
@@ -101,7 +173,7 @@ jobs:
         run: bash scripts/package-linux.sh "${GITHUB_REF_NAME#v}" target/release/picobar .
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
+          name: dist-linux-${{ matrix.arch }}
           path: |
             PicoBar-*-linux-*.tar.gz
             picobar_*_*.deb
@@ -109,11 +181,14 @@ jobs:
   release:
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: dist-*
           merge-multiple: true
       - name: Checksums and release notes
         run: |
