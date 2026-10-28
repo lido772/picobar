@@ -209,6 +209,9 @@ fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
 fn install_target() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|_| "cannot locate PicoBar")?;
     let exe = exe.canonicalize().unwrap_or(exe);
+    if exe.to_string_lossy().contains("/Cellar/") {
+        return Err("installed with Homebrew: run `brew upgrade picobar`".into());
+    }
     if cfg!(target_os = "macos") {
         exe.ancestors()
             .find(|p| p.extension().is_some_and(|e| e == "app"))

@@ -74,6 +74,27 @@ Either open **System Settings › Privacy & Security** and click **Open Anyway**
 next to PicoBar, or run once in Terminal:
 `xattr -dr com.apple.quarantine /Applications/PicoBar.app`
 
+**macOS, one line** (Intel and Apple Silicon, no Gatekeeper prompt):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lido772/picobar/main/install.sh | sh
+```
+
+It downloads the latest release, checks it against SHA256SUMS.txt and installs
+PicoBar.app in /Applications (or ~/Applications), then starts it.
+
+**macOS with Homebrew** (no Gatekeeper prompt, builds from source in about a
+minute, Apple Silicon only):
+
+```bash
+brew tap lido772/picobar https://github.com/lido772/picobar
+brew install picobar
+picobar &
+```
+
+Update with `brew upgrade picobar`; the built-in updater stays off for
+Homebrew installs.
+
 **Windows 10+**
 - Installer — `PicoBar-<version>-windows-x64-setup.exe`: installs for your
   user only (no admin rights), adds PicoBar to the Start menu and, if you
