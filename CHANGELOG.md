@@ -7,6 +7,13 @@
 - The popover header no longer says "Updating…" when Claude limits could not
   be read (it looked like a PicoBar update). It now shows "Loading…" before
   the first read and "Limits unavailable" when reading fails.
+### Added
+
+- Homebrew install on Apple Silicon without the Gatekeeper prompt: `brew tap
+  lido772/picobar https://github.com/lido772/picobar && brew install
+  picobar` builds from source. The built-in updater is off for Homebrew
+  installs.
+- `install.sh`: one-line install on macOS (Intel and Apple Silicon) without the Gatekeeper prompt; checks the release's SHA256SUMS.
 
 ## [0.3.0] - 2026-10-27
 

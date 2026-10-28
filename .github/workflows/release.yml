@@ -205,3 +205,12 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --draft --title "PicoBar ${GITHUB_REF_NAME}" --notes-file notes.md
+      - name: Point the Homebrew formula at this tag
+        run: |
+          URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          SHA=$(curl -fsSL "$URL" | sha256sum | cut -d' ' -f1)
+          git fetch origin main && git checkout -B main origin/main
+          sed -i -e "s|^  url \".*\"|  url \"$URL\"|" -e "s|^  sha256 \".*\"|  sha256 \"$SHA\"|" Formula/picobar.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "brew: picobar ${GITHUB_REF_NAME}" && git push origin main
