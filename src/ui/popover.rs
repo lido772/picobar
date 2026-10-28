@@ -284,7 +284,8 @@ fn header(ui: &mut Ui, v: &View) -> f32 {
     let sub = match v.updated_ago {
         Some(s) if s < 60 => format!("Updated {}s ago", s.max(1)),
         Some(s) => format!("Updated {} ago", util::countdown(s)),
-        None => "Updating…".into(),
+        None if v.snap.limits_error.is_some() => "Limits unavailable".into(),
+        None => "Loading…".into(),
     };
     let sub = format!("{sub} · v{}", update::CURRENT);
     ui.t(Face::Regular, 11.0, P + 38.0, y + 27.0, ui.c.muted, &sub);

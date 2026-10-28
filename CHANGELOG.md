@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The popover header no longer says "Updating…" when Claude limits could not
+  be read (it looked like a PicoBar update). It now shows "Loading…" before
+  the first read and "Limits unavailable" when reading fails.
 ### Added
 
 - Homebrew install on Apple Silicon without the Gatekeeper prompt: `brew tap
